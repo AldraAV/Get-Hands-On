@@ -1,115 +1,66 @@
-# 🖐️ Get Hands-On (MeterMano)
+# MeterMano (Get Hands-On)
+**Versión:** 1.0.0
+**Arquitectura:** Native Desktop Application (PyQt6)
 
-> *"Le meto mano a tus archivos."*
-
-**MeterMano** es una suite de manipulación de PDFs y documentos con interfaz nativa PyQt6. Diseñada para reemplazar Acrobat y herramientas online como ILovePDF con una alternativa local, rápida y sin suscripciones.
-
----
-
-## ✨ Capacidades
-
-### 📄 Manipulación de PDFs
-| Operación | Descripción |
-|---|---|
-| **Separar** | 4 modos: todas las páginas, rango, específicas, por chunks |
-| **Unir** | Combina múltiples PDFs en uno, con selección de páginas |
-| **Rotar** | 90°, 180°, 270° en páginas seleccionadas |
-| **Extraer** | Crea nuevo PDF solo con las páginas elegidas |
-| **Eliminar** | Remueve páginas del documento |
-| **Duplicar** | Clona páginas seleccionadas |
-| **Reordenar** | Drag & drop en panel de miniaturas |
-| **Insertar** | Páginas en blanco donde quieras |
-
-### 🔄 Conversiones (Tier 1)
-| Conversión | Motor | Resultado |
-|---|---|---|
-| **PDF → Word** | `pdf2docx` | `.docx` con layout, tablas e imágenes preservados |
-| **PDF → Imágenes** | `pymupdf` | PNG o JPG a 150/300/600 DPI (seleccionable) |
-| **Imágenes → PDF** | `img2pdf` + `Pillow` | Multi-imagen, soporta RGBA con fallback |
-| **Comprimir PDF** | `pymupdf` | 3 niveles de calidad (alta/media/baja) |
-
-### ✏️ Editor Visual (Beta)
-- **Visor de páginas** con zoom, navegación y fit-to-width
-- **Modo edición de texto** — Click en bloques de texto para editar
-- **Modo anotaciones** — Resaltar, notas adhesivas, dibujo libre, sellos, marcas de agua, firmas
+MeterMano es una suite integral y de alto rendimiento para la manipulación local de documentos PDF. Diseñada bajo una arquitectura modular y orientada a eventos, reemplaza la necesidad de servicios basados en la nube mediante el procesamiento On-Premise, garantizando máxima privacidad corporativa y baja latencia.
 
 ---
 
-## 🚀 Instalación
+## 🛠️ Stack Tecnológico y Dependencias Core
 
-### Prerequisitos
-- Python 3.11+
-- `pip install -r requirements.txt`
+El núcleo de renderizado y manipulación se fundamenta en las siguientes librerías:
 
-### Ejecutar
+*   **PyQt6:** Motor gráfico (GUI) nativo con manejo asíncrono de QThreads y Signals para evitar el bloqueo del Event Loop principal.
+*   **PyMuPDF (fitz):** Motor PDF de bajo nivel utilizado para renderizado de alta velocidad, compresión binaria y extracción matricial de imágenes.
+*   **PyTesseract:** Wrapper para el motor OCR óptico de Google, empleado en la vectorización de documentos escaneados.
+*   **PikePDF / PyPDF:** Gestión de subestructuras de árboles PDF y encriptación robusta bajo el estándar AES-256.
+*   **pdf2docx:** Conversor heurístico de cajas lógicas para transformación PDF → Word preservando layouts y tablas.
+*   **Pillow (PIL) & img2pdf:** Pipeline sin pérdida (lossless) para la compresión e interpolación RGBA multicapa en la conversión de imágenes bidireccionales.
+
+> **Nota Técnica (OCR):** El módulo de reconocimiento óptico de caracteres requiere que el binario `tesseract.exe` esté compilado e incluido en la variable de entorno PATH del sistema anfitrión.
+
+---
+
+## ⚙️ Características Técnicas (Features)
+
+| Módulo | Algoritmo / Función | Capacidad Destacada |
+| :--- | :--- | :--- |
+| **Manipulación Estructural** | Split, Merge, Rotate, Extract | Procesamiento por chunks (Buffer memory), soporte de reordenamiento de objetos internos del PDF. |
+| **Conversión Bi-Direccional** | Renderizado Matricial (Rasterizer) | PDF a Word (`.docx`), PDF a Imágenes (Soporte DPI Dinámico 150/300/600), Imágenes a PDF. |
+| **Motor Batch** | Threading | Aplicación de operaciones (ej. Compresión múltiple) en paralelo sobre `N` archivos simultáneamente. |
+| **Seguridad y Criptografía** | AES-256 (PikePDF) | Cifrado granular (Owner ID, User Pass) con restricción estricta de permisos de impresión, copia y modificación. |
+
+---
+
+## 🏗️ Estructura del Proyecto
+
+La base de código respeta la separación de preocupaciones (Separation of Concerns), aislando la lógica de negocio (`core/`) de la presentación (`ui/`).
+
+```text
+get_hands_on/
+├── core/
+│   ├── batch.py           # Workers de ejecución múltiple y progreso
+│   ├── converters.py      # Puente hacia pdf2docx, tesseract y rasterizadores
+│   ├── pdf_ops.py         # Interfaces de mutación de PyMuPDF
+│   └── security.py        # Módulo criptográfico AES
+├── ui/
+│   ├── main_window.py     # Controlador principal del Window Manager
+│   ├── style.py           # Inyección de estilos QSS (Global Theme)
+│   ├── components/        # Widgets atómicos (Paneles, Drag & Drop, Canvas)
+│   └── dialogs/           # Ventanas modales transaccionales
+├── workers/
+│   ├── task_worker.py     # Implementación QRunnable / QThread
+│   └── thumbnail_worker.py# Generador asíncrono de pre-visualizaciones
+└── resources/             # Assets estáticos y binarios empotrados
+```
+
+## 🚀 Instalación y Build de Producción
+
+Para entornos de desarrollo:
 ```bash
-cd Get-Hands-On
+pip install -r requirements.txt
 python -m get_hands_on
 ```
 
-### Dependencias principales
-```
-PyQt6          — GUI nativa
-pymupdf (fitz) — Motor PDF principal (render, compress, images)
-pdf2docx       — Conversión PDF → Word
-pypdf/pikepdf  — Manipulación de estructura y seguridad (AES-256)
-img2pdf        — Conversión imagen → PDF lossless
-Pillow         — Procesamiento de imágenes
-pytesseract    — Motor OCR para hacer PDFs buscables
-reportlab      — Generación de PDFs
-python-docx    — Manipulación de Word
-```
-
-> **⚠️ Nota sobre OCR (Tesseract):** Para que la función de convertir PDFs escaneados a texto buscable (OCR) funcione, necesitas tener **Tesseract OCR** instalado en tu sistema y agregado al PATH de Windows. Puedes descargarlo desde [UB Mannheim Tesseract](https://github.com/UB-Mannheim/tesseract/wiki).
-
----
-
-## 🏗️ Arquitectura
-
-```
-get_hands_on/
-├── core/
-│   ├── pdf_ops.py         # Motor PDF: split, merge, rotate, extract, delete, reorder
-│   ├── converters.py      # Conversiones: PDF↔Word, PDF↔Images, Compress, OCR
-│   ├── security.py        # Encriptación y desbloqueo (AES-256)
-│   ├── batch.py           # Procesamiento en lote
-│   └── annotations.py     # Anotaciones: highlight, stamps, watermarks
-├── ui/
-│   ├── main_window.py     # Ventana principal (Dashboard + Editor)
-│   ├── style.py           # Aurora Theme (QSS)
-│   ├── components/
-│   │   ├── drop_area.py       # Zona de drag & drop
-│   │   ├── file_list.py       # Lista de archivos cargados
-│   │   ├── log_panel.py       # Log de actividad en tiempo real
-│   │   ├── pages_panel.py     # Miniaturas de páginas (selección, reorder)
-│   │   ├── document_canvas.py # Canvas del editor visual
-│   │   └── annotation_toolbar.py # Toolbar lateral de anotaciones
-│   └── dialogs/
-│       ├── split_dialog.py    # Configuración de separación
-│       └── merge_dialog.py    # Configuración de unión
-├── workers/
-│   ├── task_worker.py         # Worker genérico (QThread)
-│   └── thumbnail_worker.py    # Renderizado de miniaturas en background
-└── resources/                 # Íconos, fuentes, assets
-```
-
----
-
-## 🗺️ Roadmap
-
-- [x] **Fase 1 (MVP)** — Manipulación básica: Unir, Separar, Rotar + UI Aurora
-- [x] **Fase 1.5 (Conversiones)** — PDF↔Word, PDF↔Images, Compresión
-- [x] **Fase 2 (Seguridad & Batch)** — Procesamiento por lotes (Batch), cifrado por contraseña (AES-256) y OCR (PyTesseract).
-- [ ] **Fase 2.5 (Experiencia)** — Miniaturas drag & drop, UI contextual, animaciones.
-- [ ] **Fase 3 (Adobe Killer)** — Edición de texto/imágenes inline, formularios, firmas digitales, HTML→PDF.
-
----
-
-## 🥚 Easter Egg
-
-Abre un archivo llamado `cerezas.pdf` 🍒
-
----
-
-*Parte del ecosistema Aldraverse.* ☀️
-*Hecho por Cheché.*
+Para generar un binario nativo de distribución (Stand-alone Executable):
+El repositorio incluye rutinas de empaquetado mediante `PyInstaller`. Las exclusiones de dependencias redundantes (ej. `[matplotlib, pandas]`) están estrictamente definidas en `MeterMano.spec` para minimizar el footprint en disco.
