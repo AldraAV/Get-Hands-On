@@ -19,9 +19,15 @@ class TaskWorker(QThread):
 
     def run(self):
         try:
-            # Inyectamos callbacks de progreso y log
-            self.kwargs['progress_cb'] = lambda p: self.progress.emit(p)
-            self.kwargs['log_cb'] = lambda m: self.log.emit(m)
+            import inspect
+            sig = inspect.signature(self.task_fn)
+            
+            # Inyectamos callbacks solo si la funcion los acepta
+            if 'progress_cb' in sig.parameters:
+                self.kwargs['progress_cb'] = lambda p: self.progress.emit(p)
+            if 'log_cb' in sig.parameters:
+                self.kwargs['log_cb'] = lambda m: self.log.emit(m)
+                
             result = self.task_fn(**self.kwargs)
             self.finished.emit(result if isinstance(result, list) else [result])
         except Exception as e:

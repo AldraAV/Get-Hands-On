@@ -309,9 +309,20 @@ def ocr_pdf(
         img = Image.open(io.BytesIO(img_data))
 
         # Run OCR — get text with bounding boxes
-        ocr_data = pytesseract.image_to_data(
-            img, lang=lang, output_type=pytesseract.Output.DICT
-        )
+        try:
+            ocr_data = pytesseract.image_to_data(
+                img, lang=lang, output_type=pytesseract.Output.DICT
+            )
+        except pytesseract.TesseractNotFoundError:
+            raise RuntimeError(
+                "Tesseract OCR no esta instalado o no se encuentra en el PATH. "
+                "Por favor, descarga e instala Tesseract para Windows, luego reinicia la aplicación.\n"
+                "(Revisa el README para mas info)"
+            )
+        except Exception as e:
+            if "tesseract is not installed" in str(e).lower():
+                raise RuntimeError("Tesseract OCR no esta instalado. Revisa el README para instrucciones.")
+            raise
 
         # Create new page with same dimensions as original
         new_page = out_doc.new_page(
