@@ -52,13 +52,15 @@ python -m get_hands_on
 PyQt6          — GUI nativa
 pymupdf (fitz) — Motor PDF principal (render, compress, images)
 pdf2docx       — Conversión PDF → Word
-pypdf/pikepdf  — Manipulación de estructura PDF
+pypdf/pikepdf  — Manipulación de estructura y seguridad (AES-256)
 img2pdf        — Conversión imagen → PDF lossless
 Pillow         — Procesamiento de imágenes
-pytesseract    — OCR (futuro)
+pytesseract    — Motor OCR para hacer PDFs buscables
 reportlab      — Generación de PDFs
 python-docx    — Manipulación de Word
 ```
+
+> **⚠️ Nota sobre OCR (Tesseract):** Para que la función de convertir PDFs escaneados a texto buscable (OCR) funcione, necesitas tener **Tesseract OCR** instalado en tu sistema y agregado al PATH de Windows. Puedes descargarlo desde [UB Mannheim Tesseract](https://github.com/UB-Mannheim/tesseract/wiki).
 
 ---
 
@@ -68,7 +70,9 @@ python-docx    — Manipulación de Word
 get_hands_on/
 ├── core/
 │   ├── pdf_ops.py         # Motor PDF: split, merge, rotate, extract, delete, reorder
-│   ├── converters.py      # Conversiones: PDF↔Word, PDF↔Images, Compress
+│   ├── converters.py      # Conversiones: PDF↔Word, PDF↔Images, Compress, OCR
+│   ├── security.py        # Encriptación y desbloqueo (AES-256)
+│   ├── batch.py           # Procesamiento en lote
 │   └── annotations.py     # Anotaciones: highlight, stamps, watermarks
 ├── ui/
 │   ├── main_window.py     # Ventana principal (Dashboard + Editor)
@@ -95,9 +99,9 @@ get_hands_on/
 
 - [x] **Fase 1 (MVP)** — Manipulación básica: Unir, Separar, Rotar + UI Aurora
 - [x] **Fase 1.5 (Conversiones)** — PDF↔Word, PDF↔Images, Compresión
-- [ ] **Fase 2 (Experience)** — Miniaturas drag & drop, UI contextual, animaciones
-- [ ] **Fase 2.5 (Tier 2)** — Word→PDF, Excel→PDF, PPT→PDF, OCR, HTML→PDF
-- [ ] **Fase 3 (Adobe Killer)** — Edición de texto/imágenes inline, OCR masivo, formularios, firmas digitales, seguridad (passwords, cifrado)
+- [x] **Fase 2 (Seguridad & Batch)** — Procesamiento por lotes (Batch), cifrado por contraseña (AES-256) y OCR (PyTesseract).
+- [ ] **Fase 2.5 (Experiencia)** — Miniaturas drag & drop, UI contextual, animaciones.
+- [ ] **Fase 3 (Adobe Killer)** — Edición de texto/imágenes inline, formularios, firmas digitales, HTML→PDF.
 
 ---
 

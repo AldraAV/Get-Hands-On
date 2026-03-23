@@ -27,9 +27,14 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("[🖐️] Get Hands-On")
+        self.setWindowTitle("Get Hands-On")
         self.resize(1100, 750)
         self.setStyleSheet(GLOBAL_STYLE)
+        
+        # Icon
+        icon_path = Path(__file__).parent.parent / 'resources' / 'icon.png'
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         
         # Estado
         self.loaded_files = []
