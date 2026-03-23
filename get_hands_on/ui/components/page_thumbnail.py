@@ -1,11 +1,10 @@
-
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QApplication
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QPoint
+from PyQt6.QtGui import QPixmap, QDrag
 from ..style import AURORA
 
 class PageThumbnail(QWidget):
-    """Miniatura de una página PDF, seleccionable."""
+    """Miniatura de una página PDF, seleccionable y arrastrable."""
 
     clicked = pyqtSignal(int, object)  # (page_num, modifiers)
     double_clicked = pyqtSignal(int)   # (page_num)
@@ -14,6 +13,8 @@ class PageThumbnail(QWidget):
         super().__init__(parent)
         self.page_num = page_num
         self.selected = False
+        self._pixmap = pixmap # Keep reference for drag preview
+        self._drag_start_pos = None
         self._setup_ui(pixmap)
 
     def _setup_ui(self, pixmap: QPixmap):
@@ -65,7 +66,39 @@ class PageThumbnail(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.pos()
             self.clicked.emit(self.page_num, event.modifiers())
+        else:
+            self._drag_start_pos = None
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not self._drag_start_pos:
+            return
+
+        dist = (event.pos() - self._drag_start_pos).manhattanLength()
+        if dist < QApplication.startDragDistance():
+            return
+
+        self._start_drag()
+
+    def _start_drag(self):
+        drag = QDrag(self)
+        mime = QMimeData()
+        
+        # Usamos texto plano para el número de página, o un formato custom
+        mime.setText(str(self.page_num))
+        mime.setData("application/x-page-thumbnail", str(self.page_num).encode('utf-8'))
+        
+        drag.setMimeData(mime)
+        
+        # Preview visual
+        preview = self._pixmap.scaled(100, 140, Qt.AspectRatioMode.KeepAspectRatio)
+        drag.setPixmap(preview)
+        drag.setHotSpot(QPoint(preview.width() // 2, preview.height() // 2))
+        
+        drag.exec(Qt.DropAction.MoveAction)
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

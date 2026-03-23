@@ -1,117 +1,35 @@
-# Python
+# Ignorar de python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual Env
-.venv
-venv/
-ENV/
 env/
-
-# Installer logs
+venv/
+.env
+.venv
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
+# Artefactos de compilación PyInstaller
+build/
+dist/
+*.spec
 
-# Translations
-*.mo
-*.pot
+# Test files
+tests/*_ocr.pdf
+tests/*_rotated.pdf
+tests/*_compressed.pdf
+tests/*_protected.pdf
+tests/*_unlocked.pdf
+tests/batch_out/
+tests/imagenes_combinadas.pdf
+tests/test_conversions_p*.png
+tests/test_conversions_p*.jpg
+tests/test_conversions.docx
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# celery beat schedule file
-celerybeat-schedule
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# Editors
+# IDE / Herramientas
 .vscode/
 .idea/
+*.swp
+*.swo

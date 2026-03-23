@@ -4,12 +4,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QMessageBox
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor
+from PyQt6.QtGui import QImage, QPixmap
 from pathlib import Path
-# from pdf2image import convert_from_path  <-- Removed
-import io
-import sys
-import sys
 from ..style import AURORA
 from .page_thumbnail import PageThumbnail
 
@@ -19,12 +15,14 @@ class PagesPanel(QWidget):
     pages_selected = pyqtSignal(list)  # Lista de páginas seleccionadas
     page_double_clicked = pyqtSignal(int) # Página doble clickeada
     action_requested = pyqtSignal(str, list) # action_name, pages
+    reorder_requested = pyqtSignal(list) # Nueva lista de orden de páginas (1-based)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.thumbnails = {}   # {page_num: PageThumbnail}
         self.selected_pages = set()
         self._setup_ui()
+        self.setAcceptDrops(True)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -159,24 +157,21 @@ class PagesPanel(QWidget):
         new_selection = set()
         
         if is_shift and self.selected_pages:
-            # RANGO: Desde el último seleccionado hasta el actual
-            start = sorted(list(self.selected_pages))[-1] # Por defecto usamos el último numéricamente? 
-            # Mejor comportamiento: Usar un 'anchor' o 'last_clicked'
+            # RANGO
+            start = sorted(list(self.selected_pages))[-1] 
             if hasattr(self, 'last_clicked_page') and self.last_clicked_page:
                 start = self.last_clicked_page
             
             low, high = min(start, page_num), max(start, page_num)
             
-            # Si hay Ctrl presionado, mantenemos la selección previa
             if is_ctrl:
                 new_selection = self.selected_pages.copy()
             
-            # Añadir rango
             for i in range(low, high + 1):
                 new_selection.add(i)
                 
         elif is_ctrl:
-            # TOGGLE: Mantener previos e invertir el actual
+            # TOGGLE
             new_selection = self.selected_pages.copy()
             if page_num in new_selection:
                 new_selection.remove(page_num)
@@ -184,26 +179,19 @@ class PagesPanel(QWidget):
                 new_selection.add(page_num)
                 
         else:
-            # NORMAL: Seleccionar solo este
+            # NORMAL
             new_selection = {page_num}
 
-        # Actualizar estado visual
         self._update_selection_visuals(new_selection)
-        
-        # Guardar referencia
         self.last_clicked_page = page_num
-        
-        # Emitir señal
         self.pages_selected.emit(sorted(list(self.selected_pages)))
 
     def _update_selection_visuals(self, new_selection: set):
-        # Deseleccionar los que ya no están
         to_deselect = self.selected_pages - new_selection
         for p in to_deselect:
             if p in self.thumbnails:
                 self.thumbnails[p].set_selected(False)
                 
-        # Seleccionar los nuevos
         to_select = new_selection - self.selected_pages
         for p in to_select:
             if p in self.thumbnails:
@@ -211,7 +199,6 @@ class PagesPanel(QWidget):
                 
         self.selected_pages = new_selection
         
-        # Actualizar label
         n = len(self.selected_pages)
         self.sel_label.setText(f"{n} seleccionada{'s' if n != 1 else ''}")
 
@@ -233,7 +220,6 @@ class PagesPanel(QWidget):
         self.pages_selected.emit([])
 
     def clear(self):
-        # Clear widgets
         while self.grid.count():
             item = self.grid.takeAt(0)
             widget = item.widget()
@@ -244,3 +230,94 @@ class PagesPanel(QWidget):
         self.selected_pages.clear()
         self.sel_label.setText("0 seleccionadas")
         self.pages_selected.emit([])
+
+    def _get_drop_index(self, pos):
+        # simplified 4-column logic
+        closest_dist = float('inf')
+        target_idx = 0
+        
+        sorted_thumbs = sorted(self.thumbnails.values(), key=lambda t: t.page_num)
+        if not sorted_thumbs:
+            return 0
+
+        # Mapeamos pos (que viene de PagesPanel) a coordenadas del grid_widget
+        # self.scroll contains self.grid_widget
+        # Event pos is relative to PagesPanel
+        # We need to consider scroll offset?
+        # pos is typically relative to the widget receiving the drop, which is PagesPanel (self)
+        
+        # Actually, since widget is inside scroll area, maybe we should accept drops on the scroll area viewport?
+        # But we set setAcceptDrops on self (PagesPanel).
+        
+        # Let's check where the mouse is relative to the grid items.
+        # We can map everything to global then back to local
+        
+        global_pos = self.mapToGlobal(pos)
+        grid_pos = self.grid_widget.mapFromGlobal(global_pos)
+        
+        for i, thumb in enumerate(sorted_thumbs):
+            rect = thumb.geometry()
+            center = rect.center()
+            
+            # If inside rect
+            if rect.contains(grid_pos):
+                if grid_pos.x() < center.x():
+                    return i
+                else:
+                    return i + 1
+            
+            dist = (grid_pos - center).manhattanLength()
+            if dist < closest_dist:
+                closest_dist = dist
+                target_idx = i
+                
+        # If past the last one
+        last = sorted_thumbs[-1]
+        last_rect = last.geometry()
+        if grid_pos.y() > last_rect.bottom():
+             return len(sorted_thumbs)
+        
+        # Default roughly closest
+        # If mouse is to the right of closest, +1
+        closest_widget = sorted_thumbs[target_idx]
+        if grid_pos.x() > closest_widget.geometry().center().x():
+            return target_idx + 1
+            
+        return target_idx
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat("application/x-page-thumbnail"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat("application/x-page-thumbnail"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat("application/x-page-thumbnail"):
+            return
+            
+        src_page = int(event.mimeData().text())
+        drop_idx = self._get_drop_index(event.pos())
+        
+        current_order = list(range(1, len(self.thumbnails) + 1))
+        
+        try:
+            src_idx = current_order.index(src_page)
+        except ValueError:
+            return
+            
+        if src_idx == drop_idx or src_idx + 1 == drop_idx:
+            return
+            
+        current_order.pop(src_idx)
+        if src_idx < drop_idx:
+            drop_idx -= 1
+        current_order.insert(drop_idx, src_page)
+        
+        self.reorder_requested.emit(current_order)
+        event.acceptProposedAction()

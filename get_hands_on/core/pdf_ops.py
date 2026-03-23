@@ -267,3 +267,31 @@ def move_page(
     
     if log_cb: log_cb(msg)
     return [output_file]
+
+def reorder_pages(
+    input_file: Path,
+    output_file: Path,
+    new_order: List[int], # 1-based indices in desired order
+    log_cb: Callable = None
+) -> List[Path]:
+    """Crea un nuevo PDF con las páginas en el orden especificado.
+    
+    Args:
+        new_order: Lista de números de página (1-based) en el orden deseado.
+                   Ej: [2, 1, 3] para intercambiar pág 1 y 2.
+    """
+    
+    reader = PdfReader(str(input_file))
+    writer = PdfWriter()
+    
+    # Validar índices con el total de páginas
+    total_pages = len(reader.pages)
+    
+    for page_num in new_order:
+        if 1 <= page_num <= total_pages:
+            writer.add_page(reader.pages[page_num - 1])
+            
+    with open(output_file, 'wb') as f: writer.write(f)
+    
+    if log_cb: log_cb(f"🔀 Páginas reordenadas. Nuevo archivo: {output_file.name}")
+    return [output_file]

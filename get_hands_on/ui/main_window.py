@@ -17,7 +17,10 @@ from .components.annotation_toolbar import AnnotationToolbar
 from .dialogs.split_dialog import SplitDialog
 from .dialogs.merge_dialog import MergeDialog
 from ..workers.task_worker import TaskWorker
-from ..core.pdf_ops import split_pdf, merge_pdfs, rotate_pages, extract_pages, delete_pages, duplicate_pages, insert_blank_page, move_page
+from ..core.pdf_ops import split_pdf, merge_pdfs, rotate_pages, extract_pages, delete_pages, duplicate_pages, insert_blank_page, move_page, reorder_pages
+from ..core.converters import pdf_to_word, pdf_to_images, images_to_pdf, compress_pdf, ocr_pdf
+from ..core.security import encrypt_pdf, decrypt_pdf
+from ..core.batch import batch_apply, BatchOp
 
 class MainWindow(QMainWindow):
     """Ventana principal de Get Hands-On"""
@@ -164,7 +167,90 @@ class MainWindow(QMainWindow):
         for btn in [self.btn_split, self.btn_merge, self.btn_rotate, self.btn_extract, self.btn_delete, self.btn_edit]:
             right_panel.addWidget(btn)
             right_panel.addSpacing(5)
-            
+
+        # ── SECCIÓN: CONVERSIONES ──────────────────────────
+        conv_sep = QFrame()
+        conv_sep.setFrameShape(QFrame.Shape.HLine)
+        conv_sep.setStyleSheet(f"color: {AURORA['border']};")
+        right_panel.addWidget(conv_sep)
+        right_panel.addSpacing(5)
+
+        conv_title = QLabel("CONVERSIONES")
+        conv_title.setProperty("class", "section-title")
+        conv_title.setStyleSheet("font-size: 13px; margin-bottom: 6px;")
+        right_panel.addWidget(conv_title)
+
+        self.btn_to_word = QPushButton("📝 PDF → Word")
+        self.btn_to_word.setMinimumHeight(40)
+        self.btn_to_word.clicked.connect(self.run_pdf_to_word)
+        self.btn_to_word.setToolTip("Convierte el PDF seleccionado a documento Word (.docx)")
+
+        self.btn_to_images = QPushButton("🖼️ PDF → Imágenes")
+        self.btn_to_images.setMinimumHeight(40)
+        self.btn_to_images.clicked.connect(self.run_pdf_to_images)
+        self.btn_to_images.setToolTip("Exporta cada página como imagen PNG o JPG")
+
+        self.btn_from_images = QPushButton("📸 Imágenes → PDF")
+        self.btn_from_images.setMinimumHeight(40)
+        self.btn_from_images.clicked.connect(self.run_images_to_pdf)
+        self.btn_from_images.setToolTip("Combina múltiples imágenes en un solo PDF")
+
+        self.btn_compress = QPushButton("🗜️ Comprimir PDF")
+        self.btn_compress.setMinimumHeight(40)
+        self.btn_compress.clicked.connect(self.run_compress)
+        self.btn_compress.setToolTip("Reduce el tamaño del PDF optimizando imágenes")
+
+        for btn in [self.btn_to_word, self.btn_to_images, self.btn_from_images, self.btn_compress]:
+            right_panel.addWidget(btn)
+            right_panel.addSpacing(4)
+
+        self.btn_ocr = QPushButton("\U0001f50d OCR (texto seleccionable)")
+        self.btn_ocr.setMinimumHeight(40)
+        self.btn_ocr.clicked.connect(self.run_ocr)
+        self.btn_ocr.setToolTip("Escanea el PDF con OCR y lo hace buscable")
+        right_panel.addWidget(self.btn_ocr)
+        right_panel.addSpacing(4)
+
+        # \u2500\u2500 SECCI\u00d3N: SEGURIDAD \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        sec_sep = QFrame()
+        sec_sep.setFrameShape(QFrame.Shape.HLine)
+        sec_sep.setStyleSheet(f"color: {AURORA['border']};")
+        right_panel.addWidget(sec_sep)
+        right_panel.addSpacing(5)
+
+        sec_title = QLabel("SEGURIDAD")
+        sec_title.setProperty("class", "section-title")
+        sec_title.setStyleSheet("font-size: 13px; margin-bottom: 6px;")
+        right_panel.addWidget(sec_title)
+
+        self.btn_encrypt = QPushButton("\U0001f512 Proteger con password")
+        self.btn_encrypt.setMinimumHeight(40)
+        self.btn_encrypt.clicked.connect(self.run_encrypt)
+        self.btn_encrypt.setToolTip("Cifra el PDF con AES-256")
+
+        self.btn_decrypt = QPushButton("\U0001f513 Desbloquear PDF")
+        self.btn_decrypt.setMinimumHeight(40)
+        self.btn_decrypt.clicked.connect(self.run_decrypt)
+        self.btn_decrypt.setToolTip("Remueve la protecci\u00f3n por password")
+
+        for btn in [self.btn_encrypt, self.btn_decrypt]:
+            right_panel.addWidget(btn)
+            right_panel.addSpacing(4)
+
+        # \u2500\u2500 SECCI\u00d3N: BATCH \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        batch_sep = QFrame()
+        batch_sep.setFrameShape(QFrame.Shape.HLine)
+        batch_sep.setStyleSheet(f"color: {AURORA['border']};")
+        right_panel.addWidget(batch_sep)
+        right_panel.addSpacing(5)
+
+        self.btn_batch = QPushButton("\u26a1 Procesamiento por lotes")
+        self.btn_batch.setMinimumHeight(45)
+        self.btn_batch.clicked.connect(self.run_batch)
+        self.btn_batch.setStyleSheet(f"background: {AURORA['bg_surface']}; border: 1px solid {AURORA['accent_orange']}; color: {AURORA['accent_orange']}; font-weight: bold;")
+        self.btn_batch.setToolTip("Aplica la misma operaci\u00f3n a m\u00faltiples PDFs de un jal\u00f3n")
+        right_panel.addWidget(self.btn_batch)
+
         right_panel.addStretch()
         
         footer = QLabel("☀️ Por Aldra\nLe meto mano a tus PDFs 🔧")
@@ -399,6 +485,7 @@ class MainWindow(QMainWindow):
         
         # Acciones de contexto
         self.pages_panel.action_requested.connect(self._on_context_action)
+        self.pages_panel.reorder_requested.connect(self.run_reorder)
 
     def _on_file_selected(self, current, previous):
         if not current:
@@ -536,6 +623,17 @@ class MainWindow(QMainWindow):
         self.btn_rotate.setEnabled(not busy and len(self.selected_pages) > 0)
         self.btn_extract.setEnabled(not busy and len(self.selected_pages) > 0)
         self.btn_delete.setEnabled(not busy and len(self.selected_pages) > 0)
+        # Conversion buttons
+        self.btn_to_word.setEnabled(not busy)
+        self.btn_to_images.setEnabled(not busy)
+        self.btn_from_images.setEnabled(not busy)
+        self.btn_compress.setEnabled(not busy)
+        self.btn_ocr.setEnabled(not busy)
+        # Security buttons
+        self.btn_encrypt.setEnabled(not busy)
+        self.btn_decrypt.setEnabled(not busy)
+        # Batch
+        self.btn_batch.setEnabled(not busy)
 
     def on_task_finished(self, results, task_name):
         self.set_ui_busy(False)
@@ -564,6 +662,56 @@ class MainWindow(QMainWindow):
             self.run_move("left")
         elif action == "move_right":
             self.run_move("right")
+
+    def run_reorder(self, new_order: list):
+        token = self._get_current_file()
+        if not token: return
+        
+        # Generar nombre temporal/final
+        # Usamos "_reordered" para indicar cambio, pero idealmente reemplazamos la vista
+        output_file = token.parent / f"{token.stem}_reordered.pdf"
+        
+        self.log.append_msg(f"Reordenando páginas de {token.name}...")
+        self.set_ui_busy(True)
+        
+        self.worker = TaskWorker(
+            task_fn=reorder_pages,
+            input_file=token,
+            output_file=output_file,
+            new_order=new_order,
+            log_cb=self.log.append_msg
+        )
+        
+        # Al terminar, queremos cargar el nuevo archivo automáticamente
+        self.worker.finished.connect(lambda res: self._on_reorder_finished(res, token))
+        self.worker.error.connect(self.on_task_error)
+        self.worker.start()
+
+    def _on_reorder_finished(self, results, original_file):
+        self.set_ui_busy(False)
+        self.log.append_msg("✅ Reordenamiento completado.")
+        
+        if results and results[0].exists():
+            new_file = results[0]
+            
+            # Opción A: Reemplazar en la lista (complejo porque file_list maneja paths)
+            # Opción B: Cargar el nuevo archivo y seleccionarlo
+            
+            # Vamos a añadirlo a la lista y seleccionarlo
+            if new_file not in self.loaded_files:
+                self.loaded_files.append(new_file)
+                self.file_list.add_file(new_file)
+            
+            # Seleccionarlo visualmente
+            # Necesitamos encontrar el item en file_list
+            # Hack: Reload current file view with new file content?
+            # Better: Select the new file in the list.
+            
+            items = self.file_list.findItems(new_file.name, Qt.MatchFlag.MatchExactly)
+            if items:
+                self.file_list.setCurrentItem(items[0])
+            
+            self.log.append_msg(f"Vista actualizada con: {new_file.name}")
 
     def run_move(self, direction):
         token = self._get_current_file()
@@ -695,8 +843,355 @@ class MainWindow(QMainWindow):
 
     def _connect_worker(self, worker, action_name):
         worker.log.connect(self.log.append_msg)
-        # Using a default arg for lambda to capture variable correctly if needed, though here action_name is local
-        # lambda res, name=action_name: self.on_task_finished(res, name)
         worker.finished.connect(lambda res, name=action_name: self.on_task_finished(res, name))
         worker.error.connect(self.on_task_error)
         worker.start()
+
+    # ── CONVERSION HANDLERS ────────────────────────────────
+
+    def run_pdf_to_word(self):
+        """Convert selected PDF to Word (.docx)."""
+        token = self._get_current_file()
+        if not token:
+            self.log.append_msg("⚠️ Selecciona un PDF de la lista para convertir.")
+            return
+
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, "Guardar como Word",
+            str(token.parent / f"{token.stem}.docx"),
+            "Word Document (*.docx)"
+        )
+        if not output_file:
+            return
+
+        self.log.append_msg(f"Convirtiendo {token.name} → Word...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=pdf_to_word,
+            input_file=token,
+            output_file=Path(output_file)
+        )
+        self._connect_worker(self.worker, "Conversión PDF → Word")
+
+    def run_pdf_to_images(self):
+        """Convert selected PDF pages to images."""
+        token = self._get_current_file()
+        if not token:
+            self.log.append_msg("Selecciona un PDF de la lista para exportar.")
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        fmt, ok = QInputDialog.getItem(
+            self, "Formato de imagen",
+            "Selecciona el formato:",
+            ["PNG (sin perdida)", "JPG (mas liviano)"],
+            0, False
+        )
+        if not ok:
+            return
+
+        ext = "png" if "PNG" in fmt else "jpg"
+
+        dpi_options = ["150 DPI (rapido)", "300 DPI (estandar)", "600 DPI (alta calidad)"]
+        dpi_str, ok = QInputDialog.getItem(
+            self, "Resolucion",
+            "Selecciona la resolucion:",
+            dpi_options, 1, False
+        )
+        if not ok:
+            return
+
+        dpi = int(dpi_str.split()[0])
+
+        output_dir = QFileDialog.getExistingDirectory(
+            self, "Carpeta de salida",
+            str(token.parent)
+        )
+        if not output_dir:
+            return
+
+        self.log.append_msg(f"Exportando {token.name} -> {ext.upper()} ({dpi} DPI)...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=pdf_to_images,
+            input_file=token,
+            output_dir=Path(output_dir),
+            fmt=ext,
+            dpi=dpi
+        )
+        self._connect_worker(self.worker, "Exportacion PDF -> Imagenes")
+
+    def run_images_to_pdf(self):
+        """Combine multiple images into a PDF."""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Seleccionar imagenes", "",
+            "Imagenes (*.png *.jpg *.jpeg *.bmp *.tiff *.webp);;Todos (*)"
+        )
+        if not files:
+            return
+
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, "Guardar PDF",
+            str(Path(files[0]).parent / "imagenes_combinadas.pdf"),
+            "PDF (*.pdf)"
+        )
+        if not output_file:
+            return
+
+        image_paths = [Path(f) for f in files]
+        self.log.append_msg(f"Combinando {len(image_paths)} imagenes -> PDF...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=images_to_pdf,
+            image_files=image_paths,
+            output_file=Path(output_file)
+        )
+        self._connect_worker(self.worker, "Conversion Imagenes -> PDF")
+
+    def run_compress(self):
+        """Compress the selected PDF."""
+        token = self._get_current_file()
+        if not token:
+            self.log.append_msg("Selecciona un PDF de la lista para comprimir.")
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        quality_options = [
+            "Alta (preserva calidad)",
+            "Media (balance recomendado)",
+            "Baja (maxima compresion)"
+        ]
+        quality_str, ok = QInputDialog.getItem(
+            self, "Nivel de compresion",
+            "Selecciona la calidad:",
+            quality_options, 1, False
+        )
+        if not ok:
+            return
+
+        quality_map = {"Alta": "high", "Media": "medium", "Baja": "low"}
+        quality = quality_map.get(quality_str.split()[0], "medium")
+
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, "Guardar PDF comprimido",
+            str(token.parent / f"{token.stem}_compressed.pdf"),
+            "PDF (*.pdf)"
+        )
+        if not output_file:
+            return
+
+        orig_kb = token.stat().st_size / 1024
+        self.log.append_msg(f"Comprimiendo {token.name} ({orig_kb:.0f} KB, calidad: {quality})...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=compress_pdf,
+            input_file=token,
+            output_file=Path(output_file),
+            quality=quality
+        )
+        self._connect_worker(self.worker, "Compresion PDF")
+
+    # -- OCR HANDLER --
+
+    def run_ocr(self):
+        """Apply OCR to make a scanned PDF searchable."""
+        token = self._get_current_file()
+        if not token:
+            self.log.append_msg("Selecciona un PDF para aplicar OCR.")
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        lang_options = [
+            "Espanol + Ingles (spa+eng)",
+            "Espanol (spa)",
+            "Ingles (eng)",
+            "Frances (fra)",
+            "Portugues (por)"
+        ]
+        lang_str, ok = QInputDialog.getItem(
+            self, "Idioma del documento",
+            "Selecciona el idioma para OCR:",
+            lang_options, 0, False
+        )
+        if not ok:
+            return
+
+        lang = lang_str.split("(")[-1].rstrip(")")
+
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, "Guardar PDF con OCR",
+            str(token.parent / f"{token.stem}_ocr.pdf"),
+            "PDF (*.pdf)"
+        )
+        if not output_file:
+            return
+
+        self.log.append_msg(f"Aplicando OCR a {token.name} (idioma: {lang})...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=ocr_pdf,
+            input_file=token,
+            output_file=Path(output_file),
+            lang=lang
+        )
+        self._connect_worker(self.worker, "OCR")
+
+    # -- SECURITY HANDLERS --
+
+    def run_encrypt(self):
+        """Encrypt the selected PDF with a password."""
+        token = self._get_current_file()
+        if not token:
+            self.log.append_msg("Selecciona un PDF para proteger.")
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        password, ok = QInputDialog.getText(
+            self, "Proteger PDF",
+            "Ingresa el password de proteccion:",
+            QInputDialog.InputMode.TextInput
+        )
+        if not ok or not password:
+            return
+
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, "Guardar PDF protegido",
+            str(token.parent / f"{token.stem}_protected.pdf"),
+            "PDF (*.pdf)"
+        )
+        if not output_file:
+            return
+
+        self.log.append_msg(f"Protegiendo {token.name} con AES-256...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=encrypt_pdf,
+            input_file=token,
+            output_file=Path(output_file),
+            user_password=password
+        )
+        self._connect_worker(self.worker, "Cifrado PDF")
+
+    def run_decrypt(self):
+        """Remove password protection from a PDF."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Seleccionar PDF protegido", "",
+            "PDF (*.pdf)"
+        )
+        if not file_path:
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        password, ok = QInputDialog.getText(
+            self, "Desbloquear PDF",
+            "Ingresa el password:",
+            QInputDialog.InputMode.TextInput
+        )
+        if not ok:
+            return
+
+        source = Path(file_path)
+        output_file, _ = QFileDialog.getSaveFileName(
+            self, "Guardar PDF desbloqueado",
+            str(source.parent / f"{source.stem}_unlocked.pdf"),
+            "PDF (*.pdf)"
+        )
+        if not output_file:
+            return
+
+        self.log.append_msg(f"Desbloqueando {source.name}...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=decrypt_pdf,
+            input_file=source,
+            output_file=Path(output_file),
+            password=password
+        )
+        self._connect_worker(self.worker, "Descifrado PDF")
+
+    # -- BATCH HANDLER --
+
+    def run_batch(self):
+        """Apply an operation to multiple PDFs at once."""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Seleccionar PDFs para procesamiento por lotes", "",
+            "PDF (*.pdf)"
+        )
+        if not files or len(files) < 1:
+            return
+
+        from PyQt6.QtWidgets import QInputDialog
+        op_options = [
+            "Comprimir",
+            "Convertir a Word",
+            "Convertir a Imagenes",
+            "Rotar todas las paginas",
+            "OCR (texto seleccionable)",
+            "Proteger con password"
+        ]
+        op_str, ok = QInputDialog.getItem(
+            self, "Operacion por lotes",
+            f"Selecciona la operacion para {len(files)} archivos:",
+            op_options, 0, False
+        )
+        if not ok:
+            return
+
+        op_map = {
+            "Comprimir": BatchOp.COMPRESS,
+            "Convertir a Word": BatchOp.TO_WORD,
+            "Convertir a Imagenes": BatchOp.TO_IMAGES,
+            "Rotar todas las paginas": BatchOp.ROTATE_ALL,
+            "OCR (texto seleccionable)": BatchOp.OCR,
+            "Proteger con password": BatchOp.ENCRYPT
+        }
+        operation = op_map.get(op_str, BatchOp.COMPRESS)
+
+        params = {}
+        if operation == BatchOp.COMPRESS:
+            q_opts = ["Media (recomendado)", "Baja (maxima compresion)", "Alta (minima compresion)"]
+            q_str, ok = QInputDialog.getItem(self, "Calidad", "Nivel:", q_opts, 0, False)
+            if not ok:
+                return
+            params["quality"] = {"Media": "medium", "Baja": "low", "Alta": "high"}.get(q_str.split()[0], "medium")
+
+        elif operation == BatchOp.ENCRYPT:
+            pw, ok = QInputDialog.getText(self, "Password", "Password para todos los archivos:")
+            if not ok or not pw:
+                return
+            params["password"] = pw
+
+        elif operation == BatchOp.ROTATE_ALL:
+            a_opts = ["90 grados (derecha)", "180 grados", "270 grados (izquierda)"]
+            a_str, ok = QInputDialog.getItem(self, "Angulo", "Rotar:", a_opts, 0, False)
+            if not ok:
+                return
+            angle_map = {"90": 90, "180": 180, "270": 270}
+            params["angle"] = angle_map.get(a_str.split()[0], 90)
+
+        output_dir = QFileDialog.getExistingDirectory(
+            self, "Carpeta de salida para los resultados",
+            str(Path(files[0]).parent)
+        )
+        if not output_dir:
+            return
+
+        input_paths = [Path(f) for f in files]
+        self.log.append_msg(f"BATCH: {op_str} en {len(files)} archivos...")
+        self.set_ui_busy(True)
+
+        self.worker = TaskWorker(
+            task_fn=batch_apply,
+            input_files=input_paths,
+            operation=operation,
+            output_dir=Path(output_dir),
+            params=params
+        )
+        self._connect_worker(self.worker, f"Batch {op_str}")

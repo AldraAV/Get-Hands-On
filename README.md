@@ -1,49 +1,111 @@
-# 🖐️ Get Hands-On (Cheché)
+# 🖐️ Get Hands-On (MeterMano)
 
-> *"Porque la mejor forma de aprender es metiendo las manos."*
+> *"Le meto mano a tus archivos."*
 
-**Get Hands-On** es una suite moderna de manipulación de PDFs diseñada para ser rápida, intuitiva y con "alma". Busca ser una alternativa ligera y potente a herramientas comerciales, enfocándose en la experiencia de usuario y la eficiencia.
+**MeterMano** es una suite de manipulación de PDFs y documentos con interfaz nativa PyQt6. Diseñada para reemplazar Acrobat y herramientas online como ILovePDF con una alternativa local, rápida y sin suscripciones.
 
-## 🚀 Características (Fase 1 - MVP)
+---
 
-*   **Unir PDFs:** Combina múltiples documentos en uno solo.
-*   **Dividir PDFs:** Separa documentos por páginas o rangos.
-*   **Rotar Páginas:** Ajusta la orientación de tus documentos.
-*   **Interfaz Moderna:** Construida con PyQt6 y estilos personalizados (Aurora Theme).
-*   **Logs en Tiempo Real:** Visualización transparente de las operaciones.
+## ✨ Capacidades
 
-## 🛠️ Stack Tecnológico
+### 📄 Manipulación de PDFs
+| Operación | Descripción |
+|---|---|
+| **Separar** | 4 modos: todas las páginas, rango, específicas, por chunks |
+| **Unir** | Combina múltiples PDFs en uno, con selección de páginas |
+| **Rotar** | 90°, 180°, 270° en páginas seleccionadas |
+| **Extraer** | Crea nuevo PDF solo con las páginas elegidas |
+| **Eliminar** | Remueve páginas del documento |
+| **Duplicar** | Clona páginas seleccionadas |
+| **Reordenar** | Drag & drop en panel de miniaturas |
+| **Insertar** | Páginas en blanco donde quieras |
 
-*   **Lenguaje:** Python 3.11+
-*   **GUI:** PyQt6
-*   **Motor PDF:** PyMuPDF (fitz)
-*   **Estilos:** QSS (Styling nativo de Qt)
+### 🔄 Conversiones (Tier 1)
+| Conversión | Motor | Resultado |
+|---|---|---|
+| **PDF → Word** | `pdf2docx` | `.docx` con layout, tablas e imágenes preservados |
+| **PDF → Imágenes** | `pymupdf` | PNG o JPG a 150/300/600 DPI (seleccionable) |
+| **Imágenes → PDF** | `img2pdf` + `Pillow` | Multi-imagen, soporta RGBA con fallback |
+| **Comprimir PDF** | `pymupdf` | 3 niveles de calidad (alta/media/baja) |
 
-## 🗺️ Roadmap
+### ✏️ Editor Visual (Beta)
+- **Visor de páginas** con zoom, navegación y fit-to-width
+- **Modo edición de texto** — Click en bloques de texto para editar
+- **Modo anotaciones** — Resaltar, notas adhesivas, dibujo libre, sellos, marcas de agua, firmas
 
-*   [x] **Fase 1:** Operaciones básicas (Unir, Separar, Rotar) y UI Base.
-*   [ ] **Fase 2 (Experience):** Vista de miniaturas reordenables, UI contextual.
-*   [ ] **Fase 3 (Adobe Killer):** Edición de texto e imágenes, OCR, anotaciones.
+---
 
-## 📦 Instalación y Uso
+## 🚀 Instalación
 
+### Prerequisitos
+- Python 3.11+
+- `pip install -r requirements.txt`
+
+### Ejecutar
 ```bash
-# Clonar el repositorio
-git clone https://github.com/AldraAV/Get-Hands-On.git
-
-# Entrar al directorio
 cd Get-Hands-On
+python -m get_hands_on
+```
 
-# Crear entorno virtual
-python -m venv .venv
-source .venv/bin/activate  # En Windows: .venv\Scripts\activate
-
-# Instalar dependencias
-pip install -r requirements.txt
-
-# Ejecutar aplicación
-python main.py
+### Dependencias principales
+```
+PyQt6          — GUI nativa
+pymupdf (fitz) — Motor PDF principal (render, compress, images)
+pdf2docx       — Conversión PDF → Word
+pypdf/pikepdf  — Manipulación de estructura PDF
+img2pdf        — Conversión imagen → PDF lossless
+Pillow         — Procesamiento de imágenes
+pytesseract    — OCR (futuro)
+reportlab      — Generación de PDFs
+python-docx    — Manipulación de Word
 ```
 
 ---
-*Parte del ecosistema Aldraverse.* 🍒
+
+## 🏗️ Arquitectura
+
+```
+get_hands_on/
+├── core/
+│   ├── pdf_ops.py         # Motor PDF: split, merge, rotate, extract, delete, reorder
+│   ├── converters.py      # Conversiones: PDF↔Word, PDF↔Images, Compress
+│   └── annotations.py     # Anotaciones: highlight, stamps, watermarks
+├── ui/
+│   ├── main_window.py     # Ventana principal (Dashboard + Editor)
+│   ├── style.py           # Aurora Theme (QSS)
+│   ├── components/
+│   │   ├── drop_area.py       # Zona de drag & drop
+│   │   ├── file_list.py       # Lista de archivos cargados
+│   │   ├── log_panel.py       # Log de actividad en tiempo real
+│   │   ├── pages_panel.py     # Miniaturas de páginas (selección, reorder)
+│   │   ├── document_canvas.py # Canvas del editor visual
+│   │   └── annotation_toolbar.py # Toolbar lateral de anotaciones
+│   └── dialogs/
+│       ├── split_dialog.py    # Configuración de separación
+│       └── merge_dialog.py    # Configuración de unión
+├── workers/
+│   ├── task_worker.py         # Worker genérico (QThread)
+│   └── thumbnail_worker.py    # Renderizado de miniaturas en background
+└── resources/                 # Íconos, fuentes, assets
+```
+
+---
+
+## 🗺️ Roadmap
+
+- [x] **Fase 1 (MVP)** — Manipulación básica: Unir, Separar, Rotar + UI Aurora
+- [x] **Fase 1.5 (Conversiones)** — PDF↔Word, PDF↔Images, Compresión
+- [ ] **Fase 2 (Experience)** — Miniaturas drag & drop, UI contextual, animaciones
+- [ ] **Fase 2.5 (Tier 2)** — Word→PDF, Excel→PDF, PPT→PDF, OCR, HTML→PDF
+- [ ] **Fase 3 (Adobe Killer)** — Edición de texto/imágenes inline, OCR masivo, formularios, firmas digitales, seguridad (passwords, cifrado)
+
+---
+
+## 🥚 Easter Egg
+
+Abre un archivo llamado `cerezas.pdf` 🍒
+
+---
+
+*Parte del ecosistema Aldraverse.* ☀️
+*Hecho por Cheché.*
