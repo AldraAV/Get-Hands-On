@@ -33,3 +33,8 @@ tests/test_conversions.docx
 .idea/
 *.swp
 *.swo
+
+# PDFs de prueba sueltos en la raíz y exportaciones del Editor MD
+/*.pdf
+*_Estilizado.pdf
+Sin Titulo*.pdf
