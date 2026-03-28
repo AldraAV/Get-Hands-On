@@ -12,6 +12,7 @@ from .components.drop_area import DropArea
 from .components.file_list import FileList
 from .components.log_panel import LogPanel
 from .components.pages_panel import PagesPanel
+from .components.markdown_editor import MarkdownEditor
 from .components.document_canvas import DocumentCanvas
 from .components.annotation_toolbar import AnnotationToolbar
 from .dialogs.split_dialog import SplitDialog
@@ -45,6 +46,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.dashboard = QWidget() # Vista principal
         self.editor = QWidget()    # Vista editor (Fase 3)
+        self.md_editor = MarkdownEditor(self) # Vista Markdown
         
         self.init_ui()
         self._connect_signals()
@@ -59,6 +61,9 @@ class MainWindow(QMainWindow):
         # --- VISTA 2: EDITOR (Canvas) ---
         self._setup_editor()
         self.stack.addWidget(self.editor)
+        
+        # --- VISTA 3: MARKDOWN EDITOR ---
+        self.stack.addWidget(self.md_editor)
         
         # Iniciar en dashboard
         self.stack.setCurrentIndex(0)
@@ -205,7 +210,13 @@ class MainWindow(QMainWindow):
         self.btn_compress.clicked.connect(self.run_compress)
         self.btn_compress.setToolTip("Reduce el tamaño del PDF optimizando imágenes")
 
-        for btn in [self.btn_to_word, self.btn_to_images, self.btn_from_images, self.btn_compress]:
+        self.btn_md_editor = QPushButton("📝 Editor Markdown (.md ↔ .pdf)")
+        self.btn_md_editor.setMinimumHeight(40)
+        self.btn_md_editor.clicked.connect(self.open_md_editor)
+        self.btn_md_editor.setToolTip("Abre el editor dual para crear o extraer Markdown a PDF")
+        self.btn_md_editor.setStyleSheet(f"background: {AURORA['bg_elevated']}; color: {AURORA['accent_orange']}; font-weight: bold;")
+
+        for btn in [self.btn_to_word, self.btn_to_images, self.btn_from_images, self.btn_compress, self.btn_md_editor]:
             right_panel.addWidget(btn)
             right_panel.addSpacing(4)
 
@@ -522,6 +533,8 @@ class MainWindow(QMainWindow):
     def close_editor(self):
         self.stack.setCurrentIndex(0) # Switch to dashboard
 
+    def open_md_editor(self):
+        self.stack.setCurrentIndex(2) # Switch to MD Editor
     def save_editor_changes(self):
         if self.canvas.save_changes():
             self.log.append_msg("✅ Cambios guardados correctamente en el PDF.")
