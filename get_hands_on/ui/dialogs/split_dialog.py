@@ -1,24 +1,19 @@
-
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QPushButton, QComboBox, QLineEdit, QSpinBox)
-from ..style import AURORA
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget, QLabel
+from qfluentwidgets import MessageBoxBase, ComboBox, LineEdit, SpinBox, SubtitleLabel
 from ...core.pdf_ops import SplitMode
 
-class SplitDialog(QDialog):
+class SplitDialog(MessageBoxBase):
     def __init__(self, parent=None, filename=""):
         super().__init__(parent)
-        self.setWindowTitle(f"🔪 Separar: {filename}")
-        self.setMinimumWidth(400)
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {AURORA['bg_deep']}; color: {AURORA['text_primary']}; }}
-            QLabel {{ color: {AURORA['text_primary']}; }}
-        """)
+        self.titleLabel = SubtitleLabel(f"🔪 Separar: {filename}", self)
         
-        layout = QVBoxLayout()
+        # Añadir márgenes visuales extras al layout de vista interno si es necesario
+        self.viewLayout.setSpacing(12)
         
-        # Modo
-        layout.addWidget(QLabel("Modo de separación:"))
-        self.mode_combo = QComboBox()
+        self.viewLayout.addWidget(self.titleLabel)
+        
+        self.mode_combo = ComboBox(self)
         self.mode_combo.addItems([
             "Todas las páginas (1 archivo x página)",
             "Rango (ej: 1-5)",
@@ -26,49 +21,41 @@ class SplitDialog(QDialog):
             "Por bloques (ej: cada 10 págs)"
         ])
         self.mode_combo.currentIndexChanged.connect(self.update_inputs)
-        layout.addWidget(self.mode_combo)
         
-        # Inputs dinámicos
-        self.input_frame = QVBoxLayout()
+        self.viewLayout.addWidget(QLabel("Modo de separación:"))
+        self.viewLayout.addWidget(self.mode_combo)
         
-        # Rango
-        self.range_input = QLineEdit()
+        # Contenedor dinámico (Inputs)
+        self.input_frame = QWidget(self)
+        self.input_layout = QVBoxLayout(self.input_frame)
+        self.input_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.range_input = LineEdit(self)
         self.range_input.setPlaceholderText("Ej: 1-5")
         self.range_input.hide()
         
-        # Específico
-        self.specific_input = QLineEdit()
+        self.specific_input = LineEdit(self)
         self.specific_input.setPlaceholderText("Ej: 1,3,5,8")
         self.specific_input.hide()
         
-        # Chunks
-        self.chunk_spin = QSpinBox()
+        self.chunk_spin = SpinBox(self)
         self.chunk_spin.setMinimum(1)
         self.chunk_spin.setValue(10)
         self.chunk_spin.setSuffix(" páginas")
         self.chunk_spin.hide()
         
-        layout.addLayout(self.input_frame)
-        layout.addWidget(self.range_input)
-        layout.addWidget(self.specific_input)
-        layout.addWidget(self.chunk_spin)
+        self.input_layout.addWidget(self.range_input)
+        self.input_layout.addWidget(self.specific_input)
+        self.input_layout.addWidget(self.chunk_spin)
         
-        # Botones
-        btn_layout = QHBoxLayout()
-        self.btn_cancel = QPushButton("Cancelar")
-        self.btn_cancel.clicked.connect(self.reject)
-        
-        self.btn_ok = QPushButton("Separar")
-        self.btn_ok.setProperty("class", "primary")
-        self.btn_ok.clicked.connect(self.accept)
-        
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.btn_cancel)
-        btn_layout.addWidget(self.btn_ok)
-        layout.addLayout(btn_layout)
-        
-        self.setLayout(layout)
-        
+        self.viewLayout.addWidget(self.input_frame)
+
+        self.widget.setMinimumWidth(380)
+
+        # Botones nativos del Box
+        self.yesButton.setText("Separar")
+        self.cancelButton.setText("Cancelar")
+
     def update_inputs(self, index):
         self.range_input.hide()
         self.specific_input.hide()

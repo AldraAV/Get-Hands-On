@@ -235,16 +235,22 @@ class DocumentCanvas(QGraphicsView):
         try:
             page = self.doc.load_page(self.current_page_idx)
 
-            # Renderizar siempre a zoom_factor × 72 DPI
-            mat = fitz.Matrix(self.zoom_factor, self.zoom_factor)
+            # Sobremuestreo para High-DPI (Retina Display equivalent)
+            device_ratio = 2.5
+            mat = fitz.Matrix(self.zoom_factor * device_ratio, self.zoom_factor * device_ratio)
             pix = page.get_pixmap(matrix=mat, alpha=False)
 
             fmt = QImage.Format.Format_RGB888
             qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, fmt)
-            qpixmap = QPixmap.fromImage(qimg.copy())
-
+            qimg.setDevicePixelRatio(device_ratio)
+            
+            qpixmap = QPixmap.fromImage(qimg)
             self.pixmap_item.setPixmap(qpixmap)
-            self.scene.setSceneRect(0, 0, pix.width, pix.height)
+            
+            # Scene usa coordenadas lógicas
+            logical_w = pix.width / device_ratio
+            logical_h = pix.height / device_ratio
+            self.scene.setSceneRect(0, 0, logical_w, logical_h)
 
             # Solo mostrar bloques de texto cuando estamos en modo edición
             self._clear_overlays()

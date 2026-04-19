@@ -1,53 +1,36 @@
-
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, 
-                             QLabel, QPushButton, QLineEdit, QListWidget, QAbstractItemView)
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QAbstractItemView
+from qfluentwidgets import MessageBoxBase, LineEdit, SubtitleLabel, ListWidget
 from pathlib import Path
-from ..style import AURORA
 
-class MergeDialog(QDialog):
+class MergeDialog(MessageBoxBase):
     def __init__(self, parent=None, files=[]):
         super().__init__(parent)
-        self.setWindowTitle(f"🔗 Unir PDFs")
-        self.setMinimumSize(400, 500)
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {AURORA['bg_deep']}; color: {AURORA['text_primary']}; }}
-            QLabel {{ color: {AURORA['text_primary']}; }}
-        """)
+        self.titleLabel = SubtitleLabel("🔗 Unir PDFs", self)
         
-        layout = QVBoxLayout()
+        self.viewLayout.setSpacing(12)
+        self.viewLayout.addWidget(self.titleLabel)
         
-        layout.addWidget(QLabel("Orden de unión (arrastra para reordenar):"))
+        self.viewLayout.addWidget(QLabel("Orden de unión (arrastra para reordenar):"))
         
-        self.file_list = QListWidget()
+        self.file_list = ListWidget(self)
         self.file_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         for f in files:
             self.file_list.addItem(f.name)
         
-        # Guardar lista original para mapear nombres a paths si hay duplicados
-        # (Para MVP asumimos nombres únicos o mapeamos por índice si no se borra)
         self.original_files = files 
         
-        layout.addWidget(self.file_list)
+        self.viewLayout.addWidget(self.file_list)
         
-        layout.addWidget(QLabel("Nombre del archivo de salida:"))
-        self.output_name = QLineEdit("unido.pdf")
-        layout.addWidget(self.output_name)
+        self.viewLayout.addWidget(QLabel("Nombre del archivo de salida:"))
+        self.output_name = LineEdit(self)
+        self.output_name.setText("unido.pdf")
+        self.viewLayout.addWidget(self.output_name)
         
-        # Botones
-        btn_layout = QHBoxLayout()
-        self.btn_cancel = QPushButton("Cancelar")
-        self.btn_cancel.clicked.connect(self.reject)
+        self.widget.setMinimumWidth(380)
         
-        self.btn_ok = QPushButton("Unir")
-        self.btn_ok.setProperty("class", "primary")
-        self.btn_ok.clicked.connect(self.accept)
-        
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.btn_cancel)
-        btn_layout.addWidget(self.btn_ok)
-        layout.addLayout(btn_layout)
-        
-        self.setLayout(layout)
+        self.yesButton.setText("Unir")
+        self.cancelButton.setText("Cancelar")
 
     def get_data(self):
         # Reconstruir orden basado en la lista visual

@@ -174,7 +174,9 @@ class MarkdownEditor(QWidget):
             
     def _go_back(self):
         main = self.window()
-        if hasattr(main, "stack"):
+        if hasattr(main, "switchTo") and hasattr(main, "dashboard"):
+            main.switchTo(main.dashboard)
+        elif hasattr(main, "stack"):
             main.stack.setCurrentIndex(0)
 
     def update_preview(self):

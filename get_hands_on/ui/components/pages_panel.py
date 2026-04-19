@@ -302,7 +302,7 @@ class PagesPanel(QWidget):
             return
             
         src_page = int(event.mimeData().text())
-        drop_idx = self._get_drop_index(event.pos())
+        drop_idx = self._get_drop_index(event.position().toPoint())
         
         current_order = list(range(1, len(self.thumbnails) + 1))
         

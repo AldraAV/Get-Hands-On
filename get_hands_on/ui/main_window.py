@@ -1,11 +1,19 @@
 
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QLabel, QFrame, QFileDialog, QMessageBox, 
-                             QSplitter, QStackedWidget)
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QFrame, QFileDialog, QMessageBox,
+    QSplitter, QStackedWidget
+)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from pathlib import Path
 import sys
+
+from qfluentwidgets import (
+    FluentWindow, FluentIcon as FIF,
+    NavigationItemPosition,
+    PushButton, PrimaryPushButton, TransparentPushButton,
+)
 
 from .style import AURORA, GLOBAL_STYLE, FONTS
 from .components.drop_area import DropArea
@@ -17,56 +25,110 @@ from .components.document_canvas import DocumentCanvas
 from .components.annotation_toolbar import AnnotationToolbar
 from .dialogs.split_dialog import SplitDialog
 from .dialogs.merge_dialog import MergeDialog
+from .dialogs.watermark_dialog import WatermarkDialog
+from .interfaces.log_interface import LogInterface
 from ..workers.task_worker import TaskWorker
 from ..core.pdf_ops import split_pdf, merge_pdfs, rotate_pages, extract_pages, delete_pages, duplicate_pages, insert_blank_page, move_page, reorder_pages
 from ..core.converters import pdf_to_word, pdf_to_images, images_to_pdf, compress_pdf, ocr_pdf
 from ..core.security import encrypt_pdf, decrypt_pdf
 from ..core.batch import batch_apply, BatchOp
+from ..core.table_export import extract_tables_to_csv, extract_tables_to_xlsx
+from ..core.watermark import add_watermark_clean, add_page_numbers, add_header_footer
 
-class MainWindow(QMainWindow):
-    """Ventana principal de Get Hands-On"""
-    
+
+class MainWindow(FluentWindow):
+    """Ventana principal de Get Hands-On — Fluent Design Aurora."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Get Hands-On")
-        self.resize(1100, 750)
-        self.setStyleSheet(GLOBAL_STYLE)
-        
-        # Icon
+        self.resize(1200, 780)
+
+        import tempfile
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.temp_files = {} # Dict[Path, Path] mapping file->temp buffer
+
+        # Icono
         icon_path = Path(__file__).parent.parent / 'resources' / 'icon.png'
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        
+
         # Estado
         self.loaded_files = []
         self.worker = None
         self.selected_pages = []
+
+        # Crear widgets de contenido
+        self.dashboard = QWidget()
+        self.dashboard.setObjectName("dashboardInterface")
+
+        self.editor = QWidget()
+        self.editor.setObjectName("editorInterface")
+
+        self.md_editor = MarkdownEditor(self)
+        self.md_editor.setObjectName("mdEditorInterface")
+
+        self.log_interface = LogInterface(self)
+        self.log_interface.setObjectName("logInterface")
         
-        # UI Components
-        self.stack = QStackedWidget()
-        self.dashboard = QWidget() # Vista principal
-        self.editor = QWidget()    # Vista editor (Fase 3)
-        self.md_editor = MarkdownEditor(self) # Vista Markdown
-        
+        # Redirigir self.log_panel para mensajes de sistema (retrocompatibilidad)
+        self.log = self.log_interface
+
         self.init_ui()
         self._connect_signals()
     
     def init_ui(self):
-        self.setCentralWidget(self.stack)
-        
-        # --- VISTA 1: DASHBOARD ---
+        # Dashboard: Editor PDF principal
         self._setup_dashboard()
-        self.stack.addWidget(self.dashboard)
-        
-        # --- VISTA 2: EDITOR (Canvas) ---
+        self.addSubInterface(self.dashboard, FIF.DOCUMENT, "Editor PDF")
+
+        # Editor: Canvas de anotaciones
         self._setup_editor()
-        self.stack.addWidget(self.editor)
+        self.addSubInterface(self.editor, FIF.EDIT, "Anotar / Ver")
+
+        # MD Editor: Markdown <-> PDF
+        self.addSubInterface(self.md_editor, FIF.BOOK_SHELF, "Markdown")
+
+        # Log de Actividad (Nuevos logs irán aquí)
+        self.addSubInterface(self.log_interface, FIF.HISTORY, "Historial")
+
+        # Herramientas de Documentación (Integradas en Sidebar)
+        self.navigationInterface.addSeparator()
         
-        # --- VISTA 3: MARKDOWN EDITOR ---
-        self.stack.addWidget(self.md_editor)
-        
-        # Iniciar en dashboard
-        self.stack.setCurrentIndex(0)
+        self.navigationInterface.addItem(
+            routeKey="watermark",
+            icon=FIF.TAG,
+            text="Marca de Agua",
+            onClick=self.run_watermark,
+            selectable=False
+        )
+        self.navigationInterface.addItem(
+            routeKey="numbering",
+            icon=FIF.SEND,
+            text="Numeración / Footer",
+            onClick=self.run_page_numbers,
+            selectable=False
+        )
+        self.navigationInterface.addItem(
+            routeKey="tables",
+            icon=FIF.TILES,
+            text="Exportar Tablas",
+            onClick=self.run_export_tables,
+            selectable=False
+        )
+
+        # Ítem inferior: Acerca de
+        self.navigationInterface.addItem(
+            routeKey="about",
+            icon=FIF.INFO,
+            text="Acerca de",
+            onClick=self._show_about,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
+        )
+
+        # Navegar al dashboard al inicio
+        self.switchTo(self.dashboard)
 
     def _setup_dashboard(self):
         # Layout principal del dashboard
@@ -82,23 +144,23 @@ class MainWindow(QMainWindow):
         self.drop_area = DropArea(self)
         self.drop_area.files_dropped.connect(self.add_files)
         left_layout.addWidget(self.drop_area)
-        
-        # Splitter vertical para listas y log
+              # Splitter vertical para lista de archivos y visor de páginas
         splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.setStyleSheet(f"QSplitter::handle {{ background: {AURORA['bg_elevated']}; height: 2px; }}")
+        splitter.setHandleWidth(2)
+        splitter.setStyleSheet(f"QSplitter::handle {{ background: {AURORA['border']}; }}")
         
         # 1. Lista de Archivos
         files_widget = QWidget()
         files_layout = QVBoxLayout(files_widget)
         files_layout.setContentsMargins(0,0,0,0)
-        list_label = QLabel("ARCHIVOS CARGADOS (Doble clic para editar)")
+        list_label = QLabel("ARCHIVOS CARGADOS")
         list_label.setProperty("class", "section-title")
         files_layout.addWidget(list_label)
         self.file_list = FileList(self)
         files_layout.addWidget(self.file_list)
         splitter.addWidget(files_widget)
         
-        # 2. Panel de Páginas
+        # 2. Panel de Páginas (Vista previa)
         pages_widget = QWidget()
         pages_layout = QVBoxLayout(pages_widget)
         pages_layout.setContentsMargins(0,0,0,0)
@@ -106,19 +168,7 @@ class MainWindow(QMainWindow):
         pages_layout.addWidget(self.pages_panel)
         splitter.addWidget(pages_widget)
 
-        # 3. Log
-        log_widget = QWidget()
-        log_layout = QVBoxLayout(log_widget)
-        log_layout.setContentsMargins(0,0,0,0)
-        log_label = QLabel("LOG DE ACTIVIDAD")
-        log_label.setProperty("class", "section-title")
-        log_layout.addWidget(log_label)
-        self.log = LogPanel(self)
-        self.log.append_msg("Sistema iniciado. Listo para meter mano.")
-        log_layout.addWidget(self.log)
-        splitter.addWidget(log_widget)
-        
-        splitter.setSizes([150, 300, 100])
+        splitter.setSizes([300, 450])
         left_layout.addWidget(splitter)
         
         main_layout.addWidget(left_widget, stretch=6)
@@ -138,43 +188,35 @@ class MainWindow(QMainWindow):
         ops_title.setStyleSheet("font-size: 14px; margin-bottom: 10px;")
         right_panel.addWidget(ops_title)
         
-        # Botones
-        self.btn_split = QPushButton("🔪 Separar páginas")
-        self.btn_split.setMinimumHeight(45)
+        # Botones Principales (Operaciones)
+        self.btn_split = PushButton("🔪 Separar páginas")
         self.btn_split.clicked.connect(self.open_split_dialog)
-        self.btn_split.setToolTip("Separa el archivo seleccionado en varios PDFs.")
         
-        self.btn_merge = QPushButton("🔗 Unir PDFs")
-        self.btn_merge.setMinimumHeight(45)
+        self.btn_merge = PrimaryPushButton("🔗 Unir PDFs (Merge)")
         self.btn_merge.clicked.connect(self.open_merge_dialog)
-        self.btn_merge.setToolTip("Une todos los archivos cargados en uno solo.")
         
-        self.btn_rotate = QPushButton("↻  Rotar páginas")
-        self.btn_rotate.setMinimumHeight(45)
+        self.btn_rotate = PushButton("↻  Rotar páginas")
         self.btn_rotate.clicked.connect(self.run_rotate)
         self.btn_rotate.setEnabled(False) 
-        self.btn_rotate.setToolTip("Gira 90° las páginas seleccionadas (derecha).")
         
-        self.btn_extract = QPushButton("📄 Extraer páginas")
-        self.btn_extract.setMinimumHeight(45)
+        self.btn_extract = PushButton("📄 Extraer páginas")
         self.btn_extract.clicked.connect(self.run_extract)
         self.btn_extract.setEnabled(False) 
-        self.btn_extract.setToolTip("Crea un nuevo PDF solo con las páginas seleccionadas.")
         
-        self.btn_delete = QPushButton("🗑️  Eliminar páginas")
-        self.btn_delete.setMinimumHeight(45)
+        self.btn_delete = PushButton("🗑️  Eliminar páginas")
         self.btn_delete.clicked.connect(self.run_delete)
-        self.btn_delete.setProperty("class", "danger")
         self.btn_delete.setEnabled(False) 
-        self.btn_delete.setToolTip("Elimina las páginas seleccionadas del archivo.")
         
-        self.btn_edit = QPushButton("✏️  Editar (Beta)")
-        self.btn_edit.setMinimumHeight(45)
+        self.btn_edit = PrimaryPushButton("✏️ Editor")
         self.btn_edit.clicked.connect(self.open_editor)
         self.btn_edit.setEnabled(False)
-        self.btn_edit.setStyleSheet(f"background: {AURORA['bg_surface']}; border: 1px solid {AURORA['accent_orange']}; color: {AURORA['accent_orange']};")
+        
+        self.btn_save_mem = PrimaryPushButton("💾 Guardar Cambios")
+        self.btn_save_mem.clicked.connect(self.run_save_memory)
+        self.btn_save_mem.setEnabled(False)
+        self.btn_save_mem.setStyleSheet(f"background: #059669; color: white; border: none; font-weight: bold;") # Green
 
-        for btn in [self.btn_split, self.btn_merge, self.btn_rotate, self.btn_extract, self.btn_delete, self.btn_edit]:
+        for btn in [self.btn_split, self.btn_merge, self.btn_rotate, self.btn_extract, self.btn_delete, self.btn_edit, self.btn_save_mem]:
             right_panel.addWidget(btn)
             right_panel.addSpacing(5)
 
@@ -190,40 +232,28 @@ class MainWindow(QMainWindow):
         conv_title.setStyleSheet("font-size: 13px; margin-bottom: 6px;")
         right_panel.addWidget(conv_title)
 
-        self.btn_to_word = QPushButton("📝 PDF → Word")
-        self.btn_to_word.setMinimumHeight(40)
+        self.btn_to_word = PushButton("📝 PDF → Word")
         self.btn_to_word.clicked.connect(self.run_pdf_to_word)
-        self.btn_to_word.setToolTip("Convierte el PDF seleccionado a documento Word (.docx)")
 
-        self.btn_to_images = QPushButton("🖼️ PDF → Imágenes")
-        self.btn_to_images.setMinimumHeight(40)
+        self.btn_to_images = PushButton("🖼️ PDF → Imágenes")
         self.btn_to_images.clicked.connect(self.run_pdf_to_images)
-        self.btn_to_images.setToolTip("Exporta cada página como imagen PNG o JPG")
 
-        self.btn_from_images = QPushButton("📸 Imágenes → PDF")
-        self.btn_from_images.setMinimumHeight(40)
+        self.btn_from_images = PushButton("📸 Imágenes → PDF")
         self.btn_from_images.clicked.connect(self.run_images_to_pdf)
-        self.btn_from_images.setToolTip("Combina múltiples imágenes en un solo PDF")
 
-        self.btn_compress = QPushButton("🗜️ Comprimir PDF")
-        self.btn_compress.setMinimumHeight(40)
+        self.btn_compress = PushButton("🗜️ Comprimir PDF")
         self.btn_compress.clicked.connect(self.run_compress)
-        self.btn_compress.setToolTip("Reduce el tamaño del PDF optimizando imágenes")
 
-        self.btn_md_editor = QPushButton("📝 Editor Markdown (.md ↔ .pdf)")
-        self.btn_md_editor.setMinimumHeight(40)
+        self.btn_md_editor = PushButton("📝 Editor Markdown")
         self.btn_md_editor.clicked.connect(self.open_md_editor)
-        self.btn_md_editor.setToolTip("Abre el editor dual para crear o extraer Markdown a PDF")
         self.btn_md_editor.setStyleSheet(f"background: {AURORA['bg_elevated']}; color: {AURORA['accent_orange']}; font-weight: bold;")
 
         for btn in [self.btn_to_word, self.btn_to_images, self.btn_from_images, self.btn_compress, self.btn_md_editor]:
             right_panel.addWidget(btn)
             right_panel.addSpacing(4)
 
-        self.btn_ocr = QPushButton("\U0001f50d OCR (texto seleccionable)")
-        self.btn_ocr.setMinimumHeight(40)
+        self.btn_ocr = PushButton("\U0001f50d Texto Seleccionable (OCR)")
         self.btn_ocr.clicked.connect(self.run_ocr)
-        self.btn_ocr.setToolTip("Escanea el PDF con OCR y lo hace buscable")
         right_panel.addWidget(self.btn_ocr)
         right_panel.addSpacing(4)
 
@@ -239,38 +269,40 @@ class MainWindow(QMainWindow):
         sec_title.setStyleSheet("font-size: 13px; margin-bottom: 6px;")
         right_panel.addWidget(sec_title)
 
-        self.btn_encrypt = QPushButton("\U0001f512 Proteger con password")
+        self.btn_encrypt = PushButton(FIF.IOT, "Proteger con password")
         self.btn_encrypt.setMinimumHeight(40)
         self.btn_encrypt.clicked.connect(self.run_encrypt)
         self.btn_encrypt.setToolTip("Cifra el PDF con AES-256")
 
-        self.btn_decrypt = QPushButton("\U0001f513 Desbloquear PDF")
+        self.btn_decrypt = PushButton(FIF.VIEW, "Desbloquear PDF")
         self.btn_decrypt.setMinimumHeight(40)
         self.btn_decrypt.clicked.connect(self.run_decrypt)
-        self.btn_decrypt.setToolTip("Remueve la protecci\u00f3n por password")
+        self.btn_decrypt.setToolTip("Remueve la protección por password")
 
         for btn in [self.btn_encrypt, self.btn_decrypt]:
             right_panel.addWidget(btn)
             right_panel.addSpacing(4)
 
-        # \u2500\u2500 SECCI\u00d3N: BATCH \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        # ── SECCIÓN: BATCH ───────────────────────────────────────────────────
         batch_sep = QFrame()
         batch_sep.setFrameShape(QFrame.Shape.HLine)
         batch_sep.setStyleSheet(f"color: {AURORA['border']};")
         right_panel.addWidget(batch_sep)
         right_panel.addSpacing(5)
 
-        self.btn_batch = QPushButton("\u26a1 Procesamiento por lotes")
+        self.btn_batch = PushButton(FIF.COMMAND_PROMPT, "Procesamiento por lotes")
         self.btn_batch.setMinimumHeight(45)
         self.btn_batch.clicked.connect(self.run_batch)
         self.btn_batch.setStyleSheet(f"background: {AURORA['bg_surface']}; border: 1px solid {AURORA['accent_orange']}; color: {AURORA['accent_orange']}; font-weight: bold;")
-        self.btn_batch.setToolTip("Aplica la misma operaci\u00f3n a m\u00faltiples PDFs de un jal\u00f3n")
+        self.btn_batch.setToolTip("Aplica la misma operación a múltiples PDFs de un jalón")
         right_panel.addWidget(self.btn_batch)
 
         right_panel.addStretch()
         
         footer = QLabel("☀️ Por Aldra\nLe meto mano a tus PDFs 🔧")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        footer.setWordWrap(False)
+        footer.setMinimumWidth(220)
         footer.setStyleSheet(f"color: {AURORA['accent_orange']}; font-style: italic; opacity: 0.8;")
         right_panel.addWidget(footer)
         
@@ -293,7 +325,7 @@ class MainWindow(QMainWindow):
                 background: {AURORA['bg_elevated']};
                 border-bottom: 1px solid {AURORA['border']};
             }}
-            QPushButton {{
+            PushButton, PrimaryPushButton {{
                 padding: 4px 10px;
                 font-size: 11px;
                 min-height: 28px;
@@ -308,9 +340,9 @@ class MainWindow(QMainWindow):
         toolbar.setSpacing(4)
 
         # Volver
-        btn_back = QPushButton("⬅ Volver")
+        btn_back = PushButton(FIF.LEFT_ARROW, "Volver")
         btn_back.clicked.connect(self.close_editor)
-        btn_back.setFixedWidth(80)
+        btn_back.setFixedWidth(100)
         toolbar.addWidget(btn_back)
 
         # Separador
@@ -325,20 +357,20 @@ class MainWindow(QMainWindow):
         self._add_separator(toolbar)
 
         # ── NAVEGACIÓN DE PÁGINA ───────────────────────────
-        btn_prev = QPushButton("◀")
-        btn_prev.setFixedWidth(30)
+        btn_prev = PushButton(FIF.LEFT_ARROW, "")
+        btn_prev.setFixedWidth(40)
         btn_prev.setToolTip("Página anterior")
         btn_prev.clicked.connect(self.canvas.prev_page)
         toolbar.addWidget(btn_prev)
 
         self.lbl_page = QLabel("1 / 1")
         self.lbl_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_page.setFixedWidth(60)
-        self.lbl_page.setStyleSheet(f"color: {AURORA['text_secondary']};")
+        self.lbl_page.setFixedWidth(80)
+        self.lbl_page.setStyleSheet(f"color: {AURORA['text_secondary']}; font-weight: bold;")
         toolbar.addWidget(self.lbl_page)
 
-        btn_next = QPushButton("▶")
-        btn_next.setFixedWidth(30)
+        btn_next = PushButton(FIF.RIGHT_ARROW, "")
+        btn_next.setFixedWidth(40)
         btn_next.setToolTip("Página siguiente")
         btn_next.clicked.connect(self.canvas.next_page)
         toolbar.addWidget(btn_next)
@@ -347,27 +379,24 @@ class MainWindow(QMainWindow):
         self._add_separator(toolbar)
 
         # ── ZOOM ───────────────────────────────────────────
-        btn_zoom_out = QPushButton("−")
-        btn_zoom_out.setFixedWidth(28)
-        btn_zoom_out.setToolTip("Reducir zoom")
+        btn_zoom_out = PushButton(FIF.ZOOM_OUT, "")
+        btn_zoom_out.setFixedWidth(40)
         btn_zoom_out.clicked.connect(self.canvas.zoom_out)
         toolbar.addWidget(btn_zoom_out)
 
         self.lbl_zoom = QLabel("150%")
         self.lbl_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_zoom.setFixedWidth(45)
+        self.lbl_zoom.setFixedWidth(60)
         self.lbl_zoom.setStyleSheet(f"color: {AURORA['text_secondary']};")
         toolbar.addWidget(self.lbl_zoom)
 
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(28)
-        btn_zoom_in.setToolTip("Aumentar zoom")
+        btn_zoom_in = PushButton(FIF.ZOOM_IN, "")
+        btn_zoom_in.setFixedWidth(40)
         btn_zoom_in.clicked.connect(self.canvas.zoom_in)
         toolbar.addWidget(btn_zoom_in)
 
-        btn_fit = QPushButton("⬚ Fit")
-        btn_fit.setFixedWidth(50)
-        btn_fit.setToolTip("Ajustar al ancho")
+        btn_fit = PushButton(FIF.FULL_SCREEN, "Ajustar Ancho")
+        btn_fit.setFixedWidth(100)
         btn_fit.clicked.connect(self.canvas.zoom_fit_width)
         toolbar.addWidget(btn_fit)
 
@@ -375,36 +404,27 @@ class MainWindow(QMainWindow):
         self._add_separator(toolbar)
 
         # ── MODOS ──────────────────────────────────────────
-        self.btn_mode_view = QPushButton("👁 Ver")
-        self.btn_mode_view.setFixedWidth(60)
-        self.btn_mode_view.setToolTip("Modo visualización (arrastrar para mover)")
-        self.btn_mode_view.setStyleSheet(f"background: {AURORA['accent_orange']}; color: black; font-weight: bold;")
+        self.btn_mode_view = PushButton(FIF.VIEW, "Ver")
         self.btn_mode_view.clicked.connect(lambda: self._set_editor_mode(EditorMode.VIEW))
         toolbar.addWidget(self.btn_mode_view)
 
-        self.btn_mode_edit = QPushButton("✏️ Editar")
-        self.btn_mode_edit.setFixedWidth(70)
-        self.btn_mode_edit.setToolTip("Modo edición de texto (click en un bloque)")
+        self.btn_mode_edit = PushButton(FIF.EDIT, "Editar Texto")
         self.btn_mode_edit.clicked.connect(lambda: self._set_editor_mode(EditorMode.EDIT_TEXT))
         toolbar.addWidget(self.btn_mode_edit)
 
-        self.btn_mode_annotate = QPushButton("🖊️ Anotar")
-        self.btn_mode_annotate.setFixedWidth(75)
-        self.btn_mode_annotate.setToolTip("Modo anotaciones")
+        self.btn_mode_annotate = PushButton(FIF.PENCIL_INK, "Anotar")
         self.btn_mode_annotate.clicked.connect(lambda: self._set_editor_mode(EditorMode.ANNOTATE))
         toolbar.addWidget(self.btn_mode_annotate)
 
         toolbar.addStretch()
 
         # ── GUARDAR ────────────────────────────────────────
-        btn_save_as = QPushButton("📥 Guardar Como")
-        btn_save_as.setFixedWidth(120)
+        btn_save_as = PushButton(FIF.SAVE_AS, "Guardar Como")
         btn_save_as.clicked.connect(lambda: self.canvas.save_as())
         toolbar.addWidget(btn_save_as)
 
-        btn_save = QPushButton("💾 Guardar")
-        btn_save.setFixedWidth(90)
-        btn_save.setStyleSheet(f"background: {AURORA['accent_orange']}; color: black; font-weight: bold;")
+        btn_save = PrimaryPushButton(FIF.SAVE, "Guardar")
+        btn_save.setFixedWidth(100)
         btn_save.clicked.connect(self.save_editor_changes)
         toolbar.addWidget(btn_save)
 
@@ -507,39 +527,54 @@ class MainWindow(QMainWindow):
         if not current:
             self.pages_panel.clear()
             self.btn_edit.setEnabled(False)
+            self.btn_save_mem.setEnabled(False)
             return
             
         self.btn_edit.setEnabled(True)
+        self.btn_save_mem.setEnabled(True)
         idx = self.file_list.row(current)
         if idx < len(self.loaded_files):
             file_path = self.loaded_files[idx]
-            self.log.append_msg(f"Renderizando vista previa: {file_path.name}...")
-            self.pages_panel.load_pdf(file_path)
+            temp_path = self.temp_files.get(file_path, file_path)
+            self.log.append_msg(f"Renderizando vista previa en caché: {file_path.name}...")
+            self.pages_panel.load_pdf(temp_path)
 
     def open_editor(self):
-        file = self._get_current_file()
+        file = self._get_current_real_file()
         if not file: return
-        
+
         self.log.append_msg(f"Abriendo editor para: {file.name}")
         self.lbl_editor_file.setText(f"Editando: {file.name}")
-        
-        self.canvas.load_document(file)
-        self.stack.setCurrentIndex(1) # Switch to editor
+
+        temp_path = self.temp_files.get(file, file)
+        self.canvas.load_document(temp_path)
+        self.switchTo(self.editor)
 
     def open_editor_at_page(self, page_num):
         self.open_editor()
         self.canvas.go_to_page(page_num)
 
     def close_editor(self):
-        self.stack.setCurrentIndex(0) # Switch to dashboard
+        self.switchTo(self.dashboard)
 
     def open_md_editor(self):
-        self.stack.setCurrentIndex(2) # Switch to MD Editor
+        self.switchTo(self.md_editor)
+
+    def _show_about(self):
+        QMessageBox.information(
+            self, "Get Hands-On",
+            "<h3 style='color:#EA580C'>🖐️ Get Hands-On (MeterMano)</h3>"
+            "<p>Suite local de manipulación de PDFs.<br>"
+            "Sin nube. Sin suscripción. Sin excusas.</p>"
+            "<p style='color:#A8A29E'>Por Aldra &bull; v1.2.0</p>"
+        )
+
     def save_editor_changes(self):
         if self.canvas.save_changes():
             self.log.append_msg("✅ Cambios guardados correctamente en el PDF.")
         else:
             self.log.append_msg("❌ Error al guardar cambios.")
+
 
     def _on_pages_selected(self, pages: list):
         self.selected_pages = pages
@@ -562,12 +597,19 @@ class MainWindow(QMainWindow):
             self.btn_rotate.setText("↻ Rotar páginas")
 
     def add_files(self, files):
+        import shutil
         for f in files:
             # Evitar duplicados exactos
             if f not in self.loaded_files:
                 self.loaded_files.append(f)
+                
+                # In-Memory Buffer architecture
+                temp_path = Path(self.temp_dir.name) / f.name
+                shutil.copy(f, temp_path)
+                self.temp_files[f] = temp_path
+                
                 self.file_list.add_file(f)
-                self.log.append_msg(f"Cargado: {f.name}")
+                self.log.append_msg(f"Cargado al buffer: {f.name}")
                 
                 # Easter Egg
                 if f.stem.lower() == 'cerezas':
@@ -682,117 +724,23 @@ class MainWindow(QMainWindow):
             self.run_move("right")
 
     def run_reorder(self, new_order: list):
-        token = self._get_current_file()
-        if not token: return
-        
-        # Generar nombre temporal/final
-        # Usamos "_reordered" para indicar cambio, pero idealmente reemplazamos la vista
-        output_file = token.parent / f"{token.stem}_reordered.pdf"
-        
-        self.log.append_msg(f"Reordenando páginas de {token.name}...")
-        self.set_ui_busy(True)
-        
-        self.worker = TaskWorker(
-            task_fn=reorder_pages,
-            input_file=token,
-            output_file=output_file,
-            new_order=new_order,
-            log_cb=self.log.append_msg
-        )
-        
-        # Al terminar, queremos cargar el nuevo archivo automáticamente
-        self.worker.finished.connect(lambda res: self._on_reorder_finished(res, token))
-        self.worker.error.connect(self.on_task_error)
-        self.worker.start()
-
-    def _on_reorder_finished(self, results, original_file):
-        self.set_ui_busy(False)
-        self.log.append_msg("✅ Reordenamiento completado.")
-        
-        if results and results[0].exists():
-            new_file = results[0]
-            
-            # Opción A: Reemplazar en la lista (complejo porque file_list maneja paths)
-            # Opción B: Cargar el nuevo archivo y seleccionarlo
-            
-            # Vamos a añadirlo a la lista y seleccionarlo
-            if new_file not in self.loaded_files:
-                self.loaded_files.append(new_file)
-                self.file_list.add_file(new_file)
-            
-            # Seleccionarlo visualmente
-            # Necesitamos encontrar el item en file_list
-            # Hack: Reload current file view with new file content?
-            # Better: Select the new file in the list.
-            
-            items = self.file_list.findItems(new_file.name, Qt.MatchFlag.MatchExactly)
-            if items:
-                self.file_list.setCurrentItem(items[0])
-            
-            self.log.append_msg(f"Vista actualizada con: {new_file.name}")
+        self._mutate_temp_file("Reordenamiento", reorder_pages, new_order=new_order)
 
     def run_move(self, direction):
-        token = self._get_current_file()
-        if not token or not self.selected_pages: return
-        
-        # Move only the first selected page for now to avoid complexity in logic
+        if not self.selected_pages: return
         target_page = self.selected_pages[0]
-        
-        output_file = token.parent / f"{token.stem}_moved.pdf"
-        self.log.append_msg(f"Moviendo página {target_page} hacia {direction}...")
-        self.set_ui_busy(True)
-        
-        self.worker = TaskWorker(
-            task_fn=move_page,
-            input_file=token,
-            output_file=output_file,
-            page_num=target_page,
-            direction=direction,
-            log_cb=self.log.append_msg
-        )
-        self._connect_worker()
-        self.worker.start()
+        self._mutate_temp_file("Movimiento de página", move_page, page_num=target_page, direction=direction)
 
     def run_duplicate(self):
-        token = self._get_current_file()
-        if not token or not self.selected_pages: return
-        
-        output_file = token.parent / f"{token.stem}_dup.pdf"
-        self.log.append_msg(f"Duplicando páginas {self.selected_pages}...")
-        self.set_ui_busy(True)
-        
-        self.worker = TaskWorker(
-            task_fn=duplicate_pages,
-            input_file=token,
-            output_file=output_file,
-            pages_to_duplicate=self.selected_pages,
-            log_cb=self.log.append_msg
-        )
-        self._connect_worker()
-        self.worker.start()
+        if not self.selected_pages: return
+        self._mutate_temp_file("Duplicar", duplicate_pages, pages_to_duplicate=self.selected_pages)
 
     def run_insert_blank(self):
-        token = self._get_current_file()
-        if not token or not self.selected_pages: return
-        
-        # Insert after the last selected page
+        if not self.selected_pages: return
         target_page = sorted(self.selected_pages)[-1]
-        output_file = token.parent / f"{token.stem}_blank.pdf"
-        
-        self.log.append_msg(f"Insertando página en blanco después de la {target_page}...")
-        self.set_ui_busy(True)
-        
-        self.worker = TaskWorker(
-            task_fn=insert_blank_page,
-            input_file=token,
-            output_file=output_file,
-            after_page=target_page,
-            log_cb=self.log.append_msg
-        )
-        self._connect_worker()
-        self.worker.start()
+        self._mutate_temp_file("Insertar página en blanco", insert_blank_page, after_page=target_page)
 
-    def _get_current_file(self):
+    def _get_current_real_file(self):
         items = self.file_list.selectedItems()
         if not items: return None
         idx = self.file_list.row(items[0])
@@ -800,70 +748,78 @@ class MainWindow(QMainWindow):
             return self.loaded_files[idx]
         return None
 
-    def run_rotate(self):
-        token = self._get_current_file()
-        if not token or not self.selected_pages: return
+    def _mutate_temp_file(self, task_name, task_fn, **kwargs):
+        real_file = self._get_current_real_file()
+        if not real_file: return
         
-        output_file = token.parent / f"{token.stem}_rotated.pdf"
-        self.log.append_msg(f"Rotando {len(self.selected_pages)} páginas de {token.name}...")
+        temp_path = self.temp_files.get(real_file)
+        if not temp_path: return
+        output_temp = Path(self.temp_dir.name) / f"mut_{temp_path.name}"
+        
+        self.log.append_msg(f"{task_name} en memoria: {real_file.name}...")
         self.set_ui_busy(True)
         
-        # Need to capture worker to prevent gc? self.worker is class attr
-        self.worker = TaskWorker(
-            task_fn=rotate_pages,
-            input_file=token,
-            output_file=output_file,
-            pages=self.selected_pages,
-            angle=90
-        )
-        self._connect_worker(self.worker, "Rotación")
+        kwargs['input_file'] = temp_path
+        kwargs['output_file'] = output_temp
+        if 'log_cb' not in kwargs:
+            kwargs['log_cb'] = self.log.append_msg
+            
+        self.worker = TaskWorker(task_fn=task_fn, **kwargs)
+        self.worker.finished.connect(lambda res: self._on_mutate_finished(res, real_file, temp_path, output_temp))
+        self.worker.error.connect(self.on_task_error)
+        self.worker.start()
 
-    def run_extract(self):
-        token = self._get_current_file()
-        if not token or not self.selected_pages: return
-        
-        output_file = token.parent / f"{token.stem}_extracted.pdf"
-        self.log.append_msg(f"Extrayendo {len(self.selected_pages)} páginas de {token.name}...")
-        self.set_ui_busy(True)
-        
-        self.worker = TaskWorker(
-            task_fn=extract_pages,
-            input_file=token,
-            output_file=output_file,
-            pages=self.selected_pages
-        )
-        self._connect_worker(self.worker, "Extracción")
+    def _on_mutate_finished(self, results, real_file, temp_path, output_temp):
+        self.set_ui_busy(False)
+        import shutil
+        if results and output_temp.exists():
+            shutil.move(str(output_temp), str(temp_path))
+            self.log.append_msg("✅ Operación completada en memoria temporal. Aplica 'Guardar' para exportar.")
+            self.pages_panel.load_pdf(temp_path)
+            if self.canvas.doc:
+                self.canvas.load_document(temp_path)
+
+    def run_rotate(self):
+        if not self.selected_pages: return
+        self._mutate_temp_file("Rotación a 90°", rotate_pages, pages=self.selected_pages, angle=90)
 
     def run_delete(self):
-        token = self._get_current_file()
+        if not self.selected_pages: return
+        reply = QMessageBox.question(self, 'Confirmar eliminación', 
+            f"¿Seguro que quieres eliminar {len(self.selected_pages)} páginas de la memoria?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self._mutate_temp_file("Eliminación", delete_pages, pages_to_delete=self.selected_pages)
+
+    def run_extract(self):
+        token = self._get_current_real_file()
         if not token or not self.selected_pages: return
         
-        output_file = token.parent / f"{token.stem}_reduced.pdf"
+        output_file, _ = QFileDialog.getSaveFileName(self, "Guardar Extracción", str(token.parent / f"{token.stem}_extracted.pdf"), "PDF (*.pdf)")
+        if not output_file: return
         
-        # Confirmación
-        reply = QMessageBox.question(self, 'Confirmar eliminación', 
-            f"¿Seguro que quieres eliminar {len(self.selected_pages)} páginas?\nEsta acción creará un nuevo archivo '{output_file.name}'.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-            
-        if reply == QMessageBox.StandardButton.No:
-            return
-
-        self.log.append_msg(f"Eliminando páginas de {token.name}...")
+        self.log.append_msg(f"Extrayendo {len(self.selected_pages)} páginas de {token.name}...")
         self.set_ui_busy(True)
-        
-        self.worker = TaskWorker(
-            task_fn=delete_pages,
-            input_file=token,
-            output_file=output_file,
-            pages_to_delete=self.selected_pages
-        )
-        self._connect_worker(self.worker, "Eliminación")
+        self.worker = TaskWorker(task_fn=extract_pages, input_file=self.temp_files.get(token, token), output_file=Path(output_file), pages=self.selected_pages)
+        self.worker.log.connect(self.log.append_msg)
+        self.worker.finished.connect(lambda res: self.on_task_finished(res, "Extracción"))
+        self.worker.error.connect(self.on_task_error)
+        self.worker.start()
 
-    def _connect_worker(self, worker, action_name):
-        worker.log.connect(self.log.append_msg)
-        worker.finished.connect(lambda res, name=action_name: self.on_task_finished(res, name))
-        worker.error.connect(self.on_task_error)
-        worker.start()
+    def run_save_memory(self):
+        real_file = self._get_current_real_file()
+        if not real_file: return
+        temp_path = self.temp_files.get(real_file)
+        if not temp_path: return
+        
+        save_path, _ = QFileDialog.getSaveFileName(self, "Exportar Archivo Editado", str(real_file.parent / f"{real_file.stem}_editado.pdf"), "PDF (*.pdf)")
+        if save_path:
+            import shutil
+            shutil.copy(temp_path, save_path)
+            self.log.append_msg(f"✅ Documento exportado exitosamente a: {save_path}")
+            QMessageBox.information(self, "Listo", "Archivo guardado exitosamente.")
+
+
 
     # ── CONVERSION HANDLERS ────────────────────────────────
 
@@ -1213,3 +1169,97 @@ class MainWindow(QMainWindow):
             params=params
         )
         self._connect_worker(self.worker, f"Batch {op_str}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # DOCUMENTAR — Exportar tablas, Marca de agua, Numeración
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def run_export_tables(self):
+        """Detecta y exporta tablas del PDF seleccionado a CSV o XLSX."""
+        pdf_path_obj = self._get_current_file()
+        if not pdf_path_obj:
+            QMessageBox.warning(self, "Sin selección", "Selecciona un PDF en la lista primero.")
+            return
+        pdf_path = str(pdf_path_obj)
+
+        # Preguntar formato
+        from PyQt6.QtWidgets import QInputDialog
+        fmt, ok = QInputDialog.getItem(
+            self, "Formato de exportación", "Exportar tablas como:",
+            ["Excel (.xlsx) — una hoja por tabla", "CSV — un archivo por tabla"],
+            0, False
+        )
+        if not ok:
+            return
+
+        if "xlsx" in fmt.lower():
+            out_path, _ = QFileDialog.getSaveFileName(
+                self, "Guardar Excel", str(Path(pdf_path).stem) + "_tablas.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+            if not out_path:
+                return
+            try:
+                count = extract_tables_to_xlsx(pdf_path, out_path)
+                if count == 0:
+                    QMessageBox.information(self, "Sin tablas", "No se encontraron tablas detectables en este PDF.")
+                else:
+                    QMessageBox.information(self, "Exportado", f"✅ {count} tabla(s) exportadas a:\n{out_path}")
+                    self.log.append_msg(f"Tablas exportadas → {out_path} ({count} tablas)")
+            except ImportError as e:
+                QMessageBox.critical(self, "Dependencia faltante", str(e))
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
+        else:
+            out_dir = QFileDialog.getExistingDirectory(
+                self, "Carpeta de salida para los CSV",
+                str(Path(pdf_path).parent)
+            )
+            if not out_dir:
+                return
+            try:
+                created = extract_tables_to_csv(pdf_path, out_dir)
+                if not created:
+                    QMessageBox.information(self, "Sin tablas", "No se encontraron tablas detectables en este PDF.")
+                else:
+                    QMessageBox.information(self, "Exportado", f"✅ {len(created)} archivo(s) CSV creados en:\n{out_dir}")
+                    self.log.append_msg(f"Tablas CSV exportadas → {out_dir} ({len(created)} archivos)")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
+
+    def run_watermark(self):
+        """Abre diálogo de marca de agua y aplica al PDF seleccionado in-memory."""
+        if not self._get_current_real_file():
+            QMessageBox.warning(self, "Sin selección", "Selecciona un PDF en la lista primero.")
+            return
+            
+        dlg = WatermarkDialog(self)
+        dlg.tabs.setCurrentIndex(0)
+        if dlg.exec() != WatermarkDialog.DialogCode.Accepted:
+            return
+
+        params = dlg.get_watermark_params()
+        self._mutate_temp_file("Marca de Agua", add_watermark_clean, **params)
+
+    def run_page_numbers(self):
+        """Abre diálogo de numeración/encabezado-pie y aplica al PDF seleccionado in-memory."""
+        if not self._get_current_real_file():
+            QMessageBox.warning(self, "Sin selección", "Selecciona un PDF en la lista primero.")
+            return
+            
+        dlg = WatermarkDialog(self)
+        dlg.tabs.setCurrentIndex(1)
+        if dlg.exec() != WatermarkDialog.DialogCode.Accepted:
+            return
+
+        mode = dlg.get_mode()
+        if mode == "pagenumber":
+            params = dlg.get_pagenumber_params()
+            self._mutate_temp_file("Numeración", add_page_numbers, **params)
+        elif mode == "headerfooter":
+            params = dlg.get_headerfooter_params()
+            self._mutate_temp_file("Encabezado/Pie", add_header_footer, **params)
+        else:
+            params = dlg.get_watermark_params()
+            self._mutate_temp_file("Marca de Agua", add_watermark_clean, **params)
+
