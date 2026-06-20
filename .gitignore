@@ -38,3 +38,7 @@ tests/test_conversions.docx
 /*.pdf
 *_Estilizado.pdf
 Sin Titulo*.pdf
+
+graphify-out/
+
+*.log

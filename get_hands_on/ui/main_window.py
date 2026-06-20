@@ -23,9 +23,11 @@ from .components.pages_panel import PagesPanel
 from .components.markdown_editor import MarkdownEditor
 from .components.document_canvas import DocumentCanvas
 from .components.annotation_toolbar import AnnotationToolbar
+from .components.lucero_mcp_widget import NonaSurgeonWidget
 from .dialogs.split_dialog import SplitDialog
 from .dialogs.merge_dialog import MergeDialog
 from .dialogs.watermark_dialog import WatermarkDialog
+from .dialogs.nona_config_dialog import NonaConfigDialog
 from .interfaces.log_interface import LogInterface
 from ..workers.task_worker import TaskWorker
 from ..core.pdf_ops import split_pdf, merge_pdfs, rotate_pages, extract_pages, delete_pages, duplicate_pages, insert_blank_page, move_page, reorder_pages
@@ -71,6 +73,9 @@ class MainWindow(FluentWindow):
         self.log_interface = LogInterface(self)
         self.log_interface.setObjectName("logInterface")
         
+        self.nona_interface = NonaSurgeonWidget(self)
+        self.nona_interface.setObjectName("nonaInterface")
+        
         # Redirigir self.log_panel para mensajes de sistema (retrocompatibilidad)
         self.log = self.log_interface
 
@@ -88,6 +93,9 @@ class MainWindow(FluentWindow):
 
         # MD Editor: Markdown <-> PDF
         self.addSubInterface(self.md_editor, FIF.BOOK_SHELF, "Markdown")
+
+        # Nona / MCP
+        self.addSubInterface(self.nona_interface, FIF.ROBOT, "Nona (IA)")
 
         # Log de Actividad (Nuevos logs irán aquí)
         self.addSubInterface(self.log_interface, FIF.HISTORY, "Historial")
@@ -115,6 +123,16 @@ class MainWindow(FluentWindow):
             text="Exportar Tablas",
             onClick=self.run_export_tables,
             selectable=False
+        )
+
+        # Ítem inferior: Ajustes de Nona
+        self.navigationInterface.addItem(
+            routeKey="nona_settings",
+            icon=FIF.SETTING,
+            text="Ajustes de Nona",
+            onClick=self._show_nona_settings,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
         )
 
         # Ítem inferior: Acerca de
@@ -153,9 +171,20 @@ class MainWindow(FluentWindow):
         files_widget = QWidget()
         files_layout = QVBoxLayout(files_widget)
         files_layout.setContentsMargins(0,0,0,0)
+
+        list_header = QHBoxLayout()
         list_label = QLabel("ARCHIVOS CARGADOS")
         list_label.setProperty("class", "section-title")
-        files_layout.addWidget(list_label)
+        
+        self.btn_remove_file = TransparentPushButton("❌ Quitar")
+        self.btn_remove_file.clicked.connect(self.remove_selected_file)
+        self.btn_remove_file.setEnabled(False)
+
+        list_header.addWidget(list_label)
+        list_header.addStretch()
+        list_header.addWidget(self.btn_remove_file)
+
+        files_layout.addLayout(list_header)
         self.file_list = FileList(self)
         files_layout.addWidget(self.file_list)
         splitter.addWidget(files_widget)
@@ -528,16 +557,40 @@ class MainWindow(FluentWindow):
             self.pages_panel.clear()
             self.btn_edit.setEnabled(False)
             self.btn_save_mem.setEnabled(False)
+            self.btn_remove_file.setEnabled(False)
             return
             
         self.btn_edit.setEnabled(True)
         self.btn_save_mem.setEnabled(True)
+        self.btn_remove_file.setEnabled(True)
         idx = self.file_list.row(current)
         if idx < len(self.loaded_files):
             file_path = self.loaded_files[idx]
             temp_path = self.temp_files.get(file_path, file_path)
             self.log.append_msg(f"Renderizando vista previa en caché: {file_path.name}...")
             self.pages_panel.load_pdf(temp_path)
+
+    def remove_selected_file(self):
+        current = self.file_list.currentItem()
+        if not current: return
+        idx = self.file_list.row(current)
+        if idx < len(self.loaded_files):
+            file_path = self.loaded_files.pop(idx)
+            # Remove from temp dict if exists
+            if file_path in self.temp_files:
+                # Optionally delete temp file here to free space
+                # Path(self.temp_files[file_path]).unlink(missing_ok=True)
+                del self.temp_files[file_path]
+            
+            self.file_list.takeItem(idx)
+            self.log.append_msg(f"🗑️ Archivo removido de la lista: {file_path.name}")
+            
+            # Select another item or clear
+            if self.file_list.count() > 0:
+                self.file_list.setCurrentRow(max(0, idx - 1))
+            else:
+                self.pages_panel.clear()
+                self.btn_remove_file.setEnabled(False)
 
     def open_editor(self):
         file = self._get_current_real_file()
@@ -568,6 +621,11 @@ class MainWindow(FluentWindow):
             "Sin nube. Sin suscripción. Sin excusas.</p>"
             "<p style='color:#A8A29E'>Por Aldra &bull; v1.2.0</p>"
         )
+
+    def _show_nona_settings(self):
+        dialog = NonaConfigDialog(self)
+        if dialog.exec():
+            self.log.append_msg("⚙️ Configuración de Nona (Groq) actualizada.")
 
     def save_editor_changes(self):
         if self.canvas.save_changes():
@@ -674,6 +732,17 @@ class MainWindow(FluentWindow):
         self.worker.finished.connect(lambda res: self.on_task_finished(res, "Unión"))
         self.worker.error.connect(self.on_task_error)
         self.worker.start()
+
+    def _connect_worker(self, worker, task_name: str):
+        """Conecta señales del TaskWorker a la UI y arranca el hilo.
+        
+        Patrón centralizado para evitar duplicar conexiones de señales
+        en cada handler de operación (Word, imágenes, compresión, OCR, etc.).
+        """
+        worker.log.connect(self.log.append_msg)
+        worker.finished.connect(lambda res: self.on_task_finished(res, task_name))
+        worker.error.connect(self.on_task_error)
+        worker.start()
 
     def set_ui_busy(self, busy):
         self.btn_split.setEnabled(not busy)
@@ -825,7 +894,7 @@ class MainWindow(FluentWindow):
 
     def run_pdf_to_word(self):
         """Convert selected PDF to Word (.docx)."""
-        token = self._get_current_file()
+        token = self._get_current_real_file()
         if not token:
             self.log.append_msg("⚠️ Selecciona un PDF de la lista para convertir.")
             return
@@ -850,7 +919,7 @@ class MainWindow(FluentWindow):
 
     def run_pdf_to_images(self):
         """Convert selected PDF pages to images."""
-        token = self._get_current_file()
+        token = self._get_current_real_file()
         if not token:
             self.log.append_msg("Selecciona un PDF de la lista para exportar.")
             return
@@ -927,7 +996,7 @@ class MainWindow(FluentWindow):
 
     def run_compress(self):
         """Compress the selected PDF."""
-        token = self._get_current_file()
+        token = self._get_current_real_file()
         if not token:
             self.log.append_msg("Selecciona un PDF de la lista para comprimir.")
             return
@@ -973,7 +1042,7 @@ class MainWindow(FluentWindow):
 
     def run_ocr(self):
         """Apply OCR to make a scanned PDF searchable."""
-        token = self._get_current_file()
+        token = self._get_current_real_file()
         if not token:
             self.log.append_msg("Selecciona un PDF para aplicar OCR.")
             return
@@ -1019,7 +1088,7 @@ class MainWindow(FluentWindow):
 
     def run_encrypt(self):
         """Encrypt the selected PDF with a password."""
-        token = self._get_current_file()
+        token = self._get_current_real_file()
         if not token:
             self.log.append_msg("Selecciona un PDF para proteger.")
             return
@@ -1175,8 +1244,8 @@ class MainWindow(FluentWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def run_export_tables(self):
-        """Detecta y exporta tablas del PDF seleccionado a CSV o XLSX."""
-        pdf_path_obj = self._get_current_file()
+        """Detecta y exporta tablas del PDF seleccionado a CSV o XLSX (en segundo plano)."""
+        pdf_path_obj = self._get_current_real_file()
         if not pdf_path_obj:
             QMessageBox.warning(self, "Sin selección", "Selecciona un PDF en la lista primero.")
             return
@@ -1199,17 +1268,15 @@ class MainWindow(FluentWindow):
             )
             if not out_path:
                 return
-            try:
+
+            def _do_xlsx():
                 count = extract_tables_to_xlsx(pdf_path, out_path)
-                if count == 0:
-                    QMessageBox.information(self, "Sin tablas", "No se encontraron tablas detectables en este PDF.")
-                else:
-                    QMessageBox.information(self, "Exportado", f"✅ {count} tabla(s) exportadas a:\n{out_path}")
-                    self.log.append_msg(f"Tablas exportadas → {out_path} ({count} tablas)")
-            except ImportError as e:
-                QMessageBox.critical(self, "Dependencia faltante", str(e))
-            except Exception as e:
-                QMessageBox.critical(self, "Error", str(e))
+                return [out_path] if count > 0 else []
+
+            self.log.append_msg(f"Extrayendo tablas de {Path(pdf_path).name} → Excel...")
+            self.set_ui_busy(True)
+            self.worker = TaskWorker(task_fn=_do_xlsx)
+            self._connect_worker(self.worker, "Exportación de tablas (Excel)")
         else:
             out_dir = QFileDialog.getExistingDirectory(
                 self, "Carpeta de salida para los CSV",
@@ -1217,15 +1284,15 @@ class MainWindow(FluentWindow):
             )
             if not out_dir:
                 return
-            try:
+
+            def _do_csv():
                 created = extract_tables_to_csv(pdf_path, out_dir)
-                if not created:
-                    QMessageBox.information(self, "Sin tablas", "No se encontraron tablas detectables en este PDF.")
-                else:
-                    QMessageBox.information(self, "Exportado", f"✅ {len(created)} archivo(s) CSV creados en:\n{out_dir}")
-                    self.log.append_msg(f"Tablas CSV exportadas → {out_dir} ({len(created)} archivos)")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", str(e))
+                return created if created else []
+
+            self.log.append_msg(f"Extrayendo tablas de {Path(pdf_path).name} → CSV...")
+            self.set_ui_busy(True)
+            self.worker = TaskWorker(task_fn=_do_csv)
+            self._connect_worker(self.worker, "Exportación de tablas (CSV)")
 
     def run_watermark(self):
         """Abre diálogo de marca de agua y aplica al PDF seleccionado in-memory."""

@@ -8,25 +8,40 @@ os.environ["PYQTWIDGETS_BACKEND"] = "PyQt6"
 # conflictos de C++ y crashes (Access Violation) de DLLs en Windows.
 import pikepdf
 
-from PyQt6.QtWidgets import QApplication
+import os
+import sys
+import traceback
 
-def main():
-    # 2. Crear QApplication primero
-    app = QApplication(sys.argv)
-    app.setApplicationName("Get Hands-On")
-    app.setOrganizationName("Aldra's Team")
+# 1. Configurar backend ANTES de cualquier importación de Qt o qfluentwidgets
+os.environ["PYQTWIDGETS_BACKEND"] = "PyQt6"
 
-    # 3. Importar qfluentwidgets después de crear la app
+try:
+    from PyQt6.QtWidgets import QApplication
+    import pikepdf
     from qfluentwidgets import setTheme, Theme, setThemeColor
-    setTheme(Theme.DARK)
-    setThemeColor("#EA580C")  # Aurora naranja
-
-    # 4. Importar MainWindow después de configurar el tema
     from get_hands_on.ui.main_window import MainWindow
-    window = MainWindow()
-    window.show()
 
-    sys.exit(app.exec())
+    def main():
+        # 2. Crear QApplication primero
+        app = QApplication(sys.argv)
+        app.setApplicationName("Get Hands-On")
+        app.setOrganizationName("Aldra's Team")
 
-if __name__ == "__main__":
-    main()
+        # 3. Importar qfluentwidgets después de crear la app
+        setTheme(Theme.DARK)
+        setThemeColor("#EA580C")  # Aurora naranja
+
+        # 4. Importar MainWindow después de configurar el tema
+        window = MainWindow()
+        window.show()
+
+        sys.exit(app.exec())
+
+    if __name__ == "__main__":
+        main()
+
+except Exception as e:
+    with open("crash.log", "w") as f:
+        f.write("CRASH OCURRIDO:\n")
+        traceback.print_exc(file=f)
+    sys.exit(1)

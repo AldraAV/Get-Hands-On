@@ -36,6 +36,20 @@ a = Analysis(
     optimize=1,
 )
 
+# FIX CRÍTICO: Eliminar DLLs de C++ redist conflictivas que crashean PyQt6/pikepdf
+def remove_conflicting_dlls(binaries):
+    filtered = []
+    for b in binaries:
+        name = b[0].lower()
+        if 'msvcp140' in name or 'vcruntime140' in name:
+            print(f"Borrando DLL conflictiva: {b[0]}")
+            continue
+        filtered.append(b)
+    return filtered
+
+a.binaries = remove_conflicting_dlls(a.binaries)
+
+
 pyz = PYZ(a.pure)
 
 # ─── ONEFILE: Los binarios/datas van DENTRO del EXE, no en COLLECT ───────────
@@ -46,7 +60,7 @@ exe = EXE(
     a.datas,       # ← Ídem con los datos
     [],
     name='MeterMano',
-    debug=False,
+    debug=True,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,

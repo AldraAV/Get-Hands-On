@@ -1,7 +1,8 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QScrollArea, QGridLayout,
-    QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QMessageBox
+    QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QMessageBox,
+    QSizePolicy
 )
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QImage, QPixmap
@@ -44,21 +45,40 @@ class PagesPanel(QWidget):
         btn_none.setFixedWidth(70)
         btn_none.clicked.connect(self.select_none)
 
+        self.btn_delete = QPushButton("🗑️ Borrar")
+        self.btn_delete.setFixedWidth(70)
+        self.btn_delete.setStyleSheet(f"color: {AURORA['accent_red']}; border: 1px solid {AURORA['accent_red']};")
+        self.btn_delete.clicked.connect(self._request_delete)
+        self.btn_delete.setEnabled(False)
+
         header.addWidget(title)
         header.addWidget(self.sel_label)
         header.addStretch()
         header.addWidget(btn_all)
         header.addWidget(btn_none)
+        header.addWidget(self.btn_delete)
 
         # Scroll area con grid de miniaturas
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {AURORA['bg_deep']}; }}")
+        # CRITICAL: Evita que el scroll empuje la ventana principal fuera de pantalla
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.grid_widget = QWidget()
+        # Forzar que el widget interno no se expanda más allá de lo necesario
+        self.grid_widget.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Preferred
+        )
         self.grid = QGridLayout(self.grid_widget)
         self.grid.setSpacing(8)
         self.scroll.setWidget(self.grid_widget)
+
+        # El panel de páginas NO debe empujar la ventana — se contiene dentro de su espacio
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self.setMinimumHeight(150)
+        self.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX — no limita por arriba, solo contiene
 
         layout.addLayout(header)
         layout.addWidget(self.scroll)
@@ -202,22 +222,48 @@ class PagesPanel(QWidget):
         n = len(self.selected_pages)
         self.sel_label.setText(f"{n} seleccionada{'s' if n != 1 else ''}")
 
+    def _on_thumbnail_clicked(self, page_num, add_to_selection):
+        thumb = self.thumbnails[page_num]
+        
+        if not add_to_selection:
+            # Seleccionar solo este
+            for p, t in self.thumbnails.items():
+                if p != page_num:
+                    t.set_selected(False)
+            self.selected_pages = {page_num}
+            thumb.set_selected(True)
+        else:
+            # Toggle
+            if page_num in self.selected_pages:
+                self.selected_pages.remove(page_num)
+                thumb.set_selected(False)
+            else:
+                self.selected_pages.add(page_num)
+                thumb.set_selected(True)
+                
+        self._update_selection_label()
+
     def select_all(self):
-        self.selected_pages.clear()
         for num, thumb in self.thumbnails.items():
             thumb.set_selected(True)
             self.selected_pages.add(num)
         
-        n = len(self.selected_pages)
-        self.sel_label.setText(f"{n} seleccionadas")
+        self._update_selection_label()
+
+    def _request_delete(self):
+        if self.selected_pages:
+            self.action_requested.emit("delete", sorted(list(self.selected_pages)))
+
+    def _update_selection_label(self):
+        self.sel_label.setText(f"{len(self.selected_pages)} seleccionadas")
         self.pages_selected.emit(sorted(list(self.selected_pages)))
+        self.btn_delete.setEnabled(len(self.selected_pages) > 0)
 
     def select_none(self):
         for thumb in self.thumbnails.values():
             thumb.set_selected(False)
         self.selected_pages.clear()
-        self.sel_label.setText("0 seleccionadas")
-        self.pages_selected.emit([])
+        self._update_selection_label()
 
     def clear(self):
         while self.grid.count():

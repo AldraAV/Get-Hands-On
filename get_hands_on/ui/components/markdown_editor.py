@@ -226,12 +226,43 @@ class MarkdownEditor(QWidget):
             "PDF Files (*.pdf)"
         )
         if file_path:
-            self.editor.setPlainText("Procesando PDF con PyMuPDF (Leyendo geometría de fuentes)...")
-            self.lbl_file.setText(f"Extracción de: {os.path.basename(file_path)}")
-            # Realizar extraction síncrona (es rápida) o worker (mejor asíncrono para docs grandes)
-            # Como es un MVP, bloquearemos brevemente
-            md_content = parse_pdf_to_md(file_path)
-            self.editor.setPlainText(md_content)
+            self.editor.setPlainText("⏳ Procesando PDF con PyMuPDF (Leyendo geometría de fuentes)...\nEsto puede tardar unos segundos en documentos grandes.")
+            self.lbl_file.setText(f"Extrayendo: {os.path.basename(file_path)}")
+            self.btn_extract_pdf.setEnabled(False)
+            self.btn_export_pdf.setEnabled(False)
+
+            from PyQt6.QtCore import QThread, pyqtSignal
+
+            class _ExtractWorker(QThread):
+                finished = pyqtSignal(str)
+                error = pyqtSignal(str)
+
+                def __init__(self, path):
+                    super().__init__()
+                    self.path = path
+
+                def run(self):
+                    try:
+                        result = parse_pdf_to_md(self.path)
+                        self.finished.emit(result)
+                    except Exception as e:
+                        self.error.emit(str(e))
+
+            self._extract_worker = _ExtractWorker(file_path)
+            self._extract_worker.finished.connect(self._on_extract_done)
+            self._extract_worker.error.connect(self._on_extract_error)
+            self._extract_worker.start()
+
+    def _on_extract_done(self, md_content: str):
+        self.editor.setPlainText(md_content)
+        self.btn_extract_pdf.setEnabled(True)
+        self.btn_export_pdf.setEnabled(True)
+        self.lbl_file.setText(f"✅ {self.lbl_file.text().replace('Extrayendo:', 'Extraído:')}")
+
+    def _on_extract_error(self, err: str):
+        self.editor.setPlainText(f"❌ Error al extraer PDF:\n{err}")
+        self.btn_extract_pdf.setEnabled(True)
+        self.btn_export_pdf.setEnabled(True)
 
     def export_to_pdf(self):
         text = self.editor.toPlainText()

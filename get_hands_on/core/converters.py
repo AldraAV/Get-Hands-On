@@ -33,7 +33,10 @@ def pdf_to_word(
     if progress_cb:
         progress_cb(10)
 
-    cv.convert(str(output_file))
+    # CRITICAL: multi_processing=False evita segfault al correr dentro de QThread/PyQt6.
+    # pdf2docx usa multiprocessing por defecto, lo cual corrompe memoria cuando se ejecuta
+    # desde un hilo secundario del event loop de Qt.
+    cv.convert(str(output_file), multi_processing=False)
     cv.close()
 
     if progress_cb:
